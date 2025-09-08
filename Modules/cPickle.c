@@ -5718,7 +5718,7 @@ cpm_dump(PyObject *self, PyObject *args, PyObject *kwds)
 
 /* dumps(obj, protocol=0). */
 static PyObject *
-cpm_dumps(PyObject *self, PyObject *args, PyObject *kwds)
+cpm_dumps_impl(PyObject *self, PyObject *args, PyObject *kwds)
 {
     static char *kwlist[] = {"obj", "protocol", NULL};
     PyObject *ob, *file = 0, *res = NULL;
@@ -5747,6 +5747,17 @@ cpm_dumps(PyObject *self, PyObject *args, PyObject *kwds)
     return res;
 }
 
+
+static PyObject *
+cpm_dumps_warn(PyObject *self, PyObject *args, PyObject *kwds)
+{
+    if(PyErr_WarnEx(PyExc_UserWarning,
+            "PYGRATE2 Warning: pickle/cPickle.dumps returns 'str' (bytes) on 2.x; "
+            "in 3.x it returns 'bytes'.",
+            1) < 0)
+        return NULL;
+    return cpm_dumps_impl(self, args, kwds);
+}
 
 /* load(fileobj). */
 static PyObject *
@@ -5830,7 +5841,7 @@ static struct PyMethodDef cPickle_methods[] = {
    "See the Pickler docstring for the meaning of optional argument proto.")
   },
 
-  {"dumps",        (PyCFunction)cpm_dumps,        METH_VARARGS | METH_KEYWORDS,
+  {"dumps",        (PyCFunction)cpm_dumps_warn,        METH_VARARGS | METH_KEYWORDS,
    PyDoc_STR("dumps(obj, protocol=0) -- "
    "Return a string containing an object in pickle format.\n"
    "\n"

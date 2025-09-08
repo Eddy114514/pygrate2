@@ -33,6 +33,7 @@ import marshal
 import sys
 import struct
 import re
+import warnings, functools
 
 __all__ = ["PickleError", "PicklingError", "UnpicklingError", "Pickler",
            "Unpickler", "dump", "dumps", "load", "loads"]
@@ -1375,7 +1376,17 @@ except ImportError:
 def dump(obj, file, protocol=None):
     Pickler(file, protocol).dump(obj)
 
-def dumps(obj, protocol=None):
+
+def dumps(*args, **kwargs):
+    warnings.warn(
+            "PYGRATE2 Warning: pickle/cPickle.dumps returns 'str' (bytes) on 2.x; "
+            "in 3.x it returns 'bytes'.",
+            UserWarning,
+            stacklevel=2
+        )
+    return _original_dumps(*args, **kwargs)
+
+def _original_dumps(obj, protocol=None):
     file = StringIO()
     Pickler(file, protocol).dump(obj)
     return file.getvalue()
