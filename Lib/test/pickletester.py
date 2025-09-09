@@ -1753,6 +1753,16 @@ class AbstractPickleModuleTests(unittest.TestCase):
         # Test issue4298
         s = '\x58\0\0\0\x54'
         self.assertRaises(EOFError, self.module.loads, s)
+        
+    def test_pygrate_pickle_dumps_emits_warning(self):
+        import warnings, base64
+        warnings.simplefilter('always', UserWarning)
+        with warnings.catch_warnings(record=True) as w:
+            b = self.module.dumps('test')
+            msgs = [str(x.message) for x in w]
+            self.assertTrue(any('PYGRATE2' in m or 'pickle/cPickle.dumps' in m for m in msgs))
+            self.assertIsInstance(b, str)
+            self.assertIsInstance(base64.b64encode(b), str)
 
 
 class AbstractPersistentPicklerTests(unittest.TestCase):
