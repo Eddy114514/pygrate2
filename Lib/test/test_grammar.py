@@ -474,7 +474,19 @@ hello world
                     self.assertTrue(Py3xWarning is w.category)
                     self.assertEqual(str(w.message), "print must be called as a function, not a statement in 3.x",
                                      "You can fix this now by using parentheses for arguments to 'print'")
-
+                    
+    def test_exec_py3k_warnings(self):
+        if sys.py3kwarning:
+            with warnings.catch_warnings(record=True) as w:
+                warnings.filterwarnings('always')
+                src = "exec '1+1'\n"
+                compile(src, '<exec_warning_test>', 'exec')
+    
+                for warning in w:
+                    self.assertTrue(Py3xWarning is w.category)
+                    self.assertEqual(str(w.message), "exec must be called as a function, not a statement in 3.x",
+                                     "You can fix this now by using parentheses for arguments to 'exec'")
+                    
     def test_del_stmt(self):
         # 'del' exprlist
         abc = [1,2,3]

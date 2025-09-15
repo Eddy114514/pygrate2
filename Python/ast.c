@@ -2728,6 +2728,12 @@ ast_for_global_stmt(struct compiling *c, const node *n)
 static stmt_ty
 ast_for_exec_stmt(struct compiling *c, const node *n)
 {
+    if (Py_Py3kWarningFlag &&
+            !ast_3x_warn(c, n,
+            "exec must be called as a function, not a statement in 3.x", 
+            "You can fix this now by using parentheses for arguments to 'exec'")){
+                return NULL;
+        }
     expr_ty expr1, globals = NULL, locals = NULL;
     int n_children = NCH(n);
     if (n_children != 2 && n_children != 4 && n_children != 6) {
