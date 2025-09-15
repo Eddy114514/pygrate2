@@ -4982,11 +4982,21 @@ static PyObject *
 build_class(PyObject *methods, PyObject *bases, PyObject *name)
 {
     PyObject *metaclass = NULL, *result, *base;
+    const char *clsname = (PyString_Check(name) ? PyString_AS_STRING(name) : "<class>");
 
     if (PyDict_Check(methods))
         metaclass = PyDict_GetItemString(methods, "__metaclass__");
-    if (metaclass != NULL)
+    if (metaclass != NULL){
+        char fix[1024];
+            PyOS_snprintf(fix, sizeof(fix),
+                            "'__metaclass__' in class body has no effect in Python 3. Use 'class %s(metaclass=Meta): ...' instead", clsname);
+            if (PyErr_WarnEx(PyExc_DeprecationWarning,
+                            fix,
+                            1) < 0){
+                                return NULL;
+                            }
         Py_INCREF(metaclass);
+    }
     else if (PyTuple_Check(bases) && PyTuple_GET_SIZE(bases) > 0) {
         base = PyTuple_GET_ITEM(bases, 0);
         metaclass = PyObject_GetAttrString(base, "__class__");
@@ -4998,11 +5008,21 @@ build_class(PyObject *methods, PyObject *bases, PyObject *name)
     }
     else {
         PyObject *g = PyEval_GetGlobals();
-        if (g != NULL && PyDict_Check(g))
+        if (g != NULL && PyDict_Check(g)){
             metaclass = PyDict_GetItemString(g, "__metaclass__");
+            char fix[1024];
+            PyOS_snprintf(fix, sizeof(fix),
+                            "'__metaclass__' in class body has no effect in Python 3. Use 'class %s(metaclass=Meta): ...' instead", clsname);
+            if (PyErr_WarnEx(PyExc_DeprecationWarning,
+                            fix,
+                            1) < 0){
+                                return NULL;
+                            }
+                
         if (metaclass == NULL)
             metaclass = (PyObject *) &PyClass_Type;
         Py_INCREF(metaclass);
+        }
     }
     result = PyObject_CallFunctionObjArgs(metaclass, name, bases, methods,
                                           NULL);

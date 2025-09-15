@@ -87,6 +87,18 @@ class TestPy3KWarnings(unittest.TestCase):
                 safe_exec("def f({0}=43): pass".format(keyword))
                 self.assertWarning(None, w, expected)
                 w.reset()
+    
+    def test_metaclass(self):
+        with check_py3k_warnings() as w:
+            class testA:
+                __metaclass__ = type
+            self.assertEqual(str(w.message), "'__metaclass__' in class body has no effect in Python 3." 
+                               " Use 'class testA(metaclass=Meta): ...' instead")
+            w.reset()
+            class testB:
+                __metaclass__ = type
+            self.assertEqual(str(w.message), "'__metaclass__' in class body has no effect in Python 3." 
+                               " Use 'class testB(metaclass=Meta): ...' instead")
 
 
     def test_type_inequality_comparisons(self):
