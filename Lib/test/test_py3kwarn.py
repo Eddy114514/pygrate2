@@ -64,7 +64,9 @@ class TestPy3KWarnings(unittest.TestCase):
 
         tests = [("True", "assignment to True or False is forbidden in 3.x"),
                  ("False", "assignment to True or False is forbidden in 3.x"),
-                 ("nonlocal", "nonlocal is a keyword in 3.x")]
+                 ("nonlocal", "nonlocal is a keyword in 3.x"),
+                 ("async", "async is a keyword in 3.x"),
+                 ("await", "await is a keyword in 3.x")]
         with check_py3k_warnings(('', SyntaxWarning)) as w:
             for keyword, expected in tests:
                 safe_exec("{0} = False".format(keyword))

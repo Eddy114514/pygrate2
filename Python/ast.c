@@ -158,6 +158,12 @@ forbidden_check(struct compiling *c, const node *n, const char *x)
         if (!strcmp(x, "nonlocal") &&
             !ast_warn(c, n, "nonlocal is a keyword in 3.x"))
             return 0;
+        if (!strcmp(x, "async") &&
+            !ast_warn(c, n, "async is a keyword in 3.x"))
+            return 0;
+        if (!strcmp(x, "await") &&
+            !ast_warn(c, n, "await is a keyword in 3.x"))
+            return 0;
     }
     return 1;
 }
