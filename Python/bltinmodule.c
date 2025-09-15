@@ -53,7 +53,7 @@ static void warn_removed_module_import(const char *fullname) {
                           "module '%s' is removed in Python 3", k_removed_modules[i].name);
 
             if (PyErr_WarnPy3k_WithFix(buf, k_removed_modules[i].fix, 1) < 0){
-                return NULL;
+                return;
             }
             return;
         }
