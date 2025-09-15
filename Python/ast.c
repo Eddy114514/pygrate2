@@ -2596,9 +2596,6 @@ alias_for_import_name(struct compiling *c, const node *n, int store)
     return NULL;
 }
 
-#define IDENT_EQ(id, s) \
-    ((id) && PyString_Check(id) && strcmp(PyString_AS_STRING(id), (s)) == 0)
-
 static stmt_ty
 ast_for_import_stmt(struct compiling *c, const node *n)
 {
@@ -2627,15 +2624,6 @@ ast_for_import_stmt(struct compiling *c, const node *n)
             alias_ty import_alias = alias_for_import_name(c, CHILD(n, i), 1);
             if (!import_alias)
                 return NULL;
-            if (IDENT_EQ(import_alias->name, "StringIO") ||
-                IDENT_EQ(import_alias->name, "cStringIO")) {
-                char buf[200];
-                PyOS_snprintf(buf, sizeof(buf),
-                            "module '%s' is removed in Python 3",
-                            PyString_AS_STRING(import_alias->name));
-                ast_3x_warn(c, n, buf,
-                    "use 'io.StringIO' (text) or 'io.BytesIO' (bytes)");
-            }
             asdl_seq_SET(aliases, i / 2, import_alias);
         }
         return Import(aliases, lineno, col_offset, c->c_arena);
@@ -2708,15 +2696,6 @@ ast_for_import_stmt(struct compiling *c, const node *n)
         }
         if (mod != NULL)
             modname = mod->name;
-        if (IDENT_EQ(modname, "StringIO") ||
-            IDENT_EQ(modname, "cStringIO")) {
-            char buf[200];
-            PyOS_snprintf(buf, sizeof(buf),
-                        "module '%s' is removed in Python 3",
-                        PyString_AS_STRING(modname));
-            ast_3x_warn(c, n, buf,
-                "use 'io.StringIO' (text) or 'io.BytesIO' (bytes)");
-        }
         return ImportFrom(modname, aliases, ndots, lineno, col_offset,
                           c->c_arena);
     }

@@ -16,6 +16,7 @@
 *.profraw
 *.dyn
 .history/
+.vscode/
 Doc/build/
 Doc/venv/
 Doc/.venv/

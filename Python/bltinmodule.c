@@ -32,6 +32,34 @@ static PyObject *filterunicode(PyObject *, PyObject *);
 #endif
 static PyObject *filtertuple (PyObject *, PyObject *);
 
+static const struct {
+    const char *name;
+    const char *fix;
+} k_removed_modules[] = {
+    { "StringIO",   "use 'io.StringIO' (text) or 'io.BytesIO' (bytes)" },
+    { "cStringIO",  "use 'io.StringIO' (text) or 'io.BytesIO' (bytes)" },
+};
+
+static void warn_removed_module_import(const char *fullname) {
+    const char *dot = strchr(fullname, '.');
+    size_t top_len = dot ? (size_t)(dot - fullname) : strlen(fullname);
+
+    for (size_t i = 0; i < sizeof(k_removed_modules)/sizeof(k_removed_modules[0]); i++) {
+        if (strlen(k_removed_modules[i].name) == top_len &&
+            strncmp(fullname, k_removed_modules[i].name, top_len) == 0) {
+
+            char buf[256];
+            PyOS_snprintf(buf, sizeof(buf),
+                          "module '%s' is removed in Python 3", k_removed_modules[i].name);
+
+            if (PyErr_WarnPy3k_WithFix(buf, k_removed_modules[i].fix, 1) < 0){
+                return NULL;
+            }
+            return;
+        }
+    }
+}
+
 static PyObject *
 builtin___import__(PyObject *self, PyObject *args, PyObject *kwds)
 {
@@ -46,6 +74,7 @@ builtin___import__(PyObject *self, PyObject *args, PyObject *kwds)
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "s|OOOi:__import__",
                     kwlist, &name, &globals, &locals, &fromlist, &level))
         return NULL;
+    warn_removed_module_import(name);
     return PyImport_ImportModuleLevel(name, globals, locals,
                                       fromlist, level);
 }
