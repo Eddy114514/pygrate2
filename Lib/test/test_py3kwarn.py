@@ -384,6 +384,20 @@ class TestPy3KWarnings(unittest.TestCase):
                     use 'raise' with a single object"""
         with check_py3k_warnings() as w:
             excType, excValue, excTraceback = sys.exc_info()
+            
+    def test_string_concat(self):
+        expected = "The first string is 'unicode' while the second is 'str': "\
+                "mixed bytes, str and unicode operands cannot be used in string concatenation in Python 3.x"
+                
+        a = u"a"
+        b = b"b"
+        c = a + b
+    
+        check_py3k_warnings(expected)
+            
+            
+
+
 
 
 class TestStdlibRemovals(unittest.TestCase):
