@@ -6396,6 +6396,18 @@ PyObject *PyUnicode_Concat(PyObject *left,
         goto onError;
     }
 
+    if (left->ob_type != right->ob_type) {
+        char msgbuf[256];
+        sprintf(msgbuf, "The first string is '%.200s' while the second is '%.200s': "\
+                "mixed bytes, str and unicode operands cannot be used in string concatenation in Python 3.x", 
+                Py_TYPE(left)->tp_name, Py_TYPE(right)->tp_name);
+        char *fix = "convert the operand(s) so that they are the same type.";
+        if (Py_Py3kWarningFlag &&
+            PyErr_WarnEx_WithFix(PyExc_Py3xWarning, msgbuf, fix, 1) < 0) {
+            return NULL;
+        }
+    }
+
     /* Concat the two Unicode strings */
     w = _PyUnicode_New(u->length + v->length);
     if (w == NULL)
