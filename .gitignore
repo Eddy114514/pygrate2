@@ -15,6 +15,7 @@
 *.profclang?
 *.profraw
 *.dyn
+.history/
 Doc/build/
 Doc/venv/
 Doc/.venv/

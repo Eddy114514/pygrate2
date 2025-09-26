@@ -2,6 +2,7 @@ import unittest
 import sys
 from test.test_support import check_py3k_warnings, CleanImport, run_unittest
 import warnings
+import base64
 from test import test_support
 
 if not sys.py3kwarning:
@@ -384,7 +385,22 @@ class TestPy3KWarnings(unittest.TestCase):
                     use 'raise' with a single object"""
         with check_py3k_warnings() as w:
             excType, excValue, excTraceback = sys.exc_info()
-
+            
+    def test_b64encode_warns(self):
+        expected = "base64.b64encode returns str in Python 2 (bytes in 3.x)"
+        base64.b64encode(b'test')
+        check_py3k_warnings(expected, UserWarning)
+        
+    def test_b32encode_warns(self):
+        expected = "base64.b32encode returns str in Python 2 (bytes in 3.x)"
+        base64.b32encode(b'test')
+        check_py3k_warnings(expected, UserWarning)
+    
+    def test_b16encode_warns(self):
+        expected = "base64.b16encode returns str in Python 2 (bytes in 3.x)"
+        base64.b16encode(b'test')
+        check_py3k_warnings(expected, UserWarning)
+        
 
 class TestStdlibRemovals(unittest.TestCase):
 
