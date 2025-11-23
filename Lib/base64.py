@@ -9,7 +9,8 @@ import re
 import struct
 import string
 import binascii
-from warnings import warnpy3k_with_fix
+from warnings import warnpy3k_with_fix, warnpy3k
+from functools import wraps
 
 
 __all__ = [
@@ -366,6 +367,21 @@ def test1():
     s2 = decodestring(s1)
     print s0, repr(s1), s2
 
+
+def _warn_encode(func, name):
+    @wraps(func)
+    def encode_wrapper(*args, **kwargs):
+        warnpy3k(
+            "base64.{0} returns str in Python 2 (bytes in 3.x)".format(name),
+            UserWarning,
+            stacklevel= 2,
+            )
+        return func(*args, **kwargs)
+    return encode_wrapper
+
+
+for _name in ["b64encode", "b32encode", "b16encode"]:
+    globals()[_name] = _warn_encode(globals()[_name], _name)
 
 if __name__ == '__main__':
     test()
