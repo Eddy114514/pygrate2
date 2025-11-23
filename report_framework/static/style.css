@@ -1,0 +1,139 @@
+/* ===== Layout ===== */
+
+body {
+    font-family: sans-serif;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+header {
+    padding: 10px 16px;
+    background-color: #222;
+    color: #f5f5f5;
+}
+
+header form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+header label {
+    font-size: 14px;
+}
+
+header input[type="text"] {
+    padding: 4px 6px;
+    font-size: 13px;
+    min-width: 260px;
+    color: #000;
+    background-color: #fff;
+    border: 1px solid #666;
+    border-radius: 3px;
+}
+
+header button {
+    padding: 4px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    color: #000;
+}
+
+main {
+    flex: 1;
+    display: flex;
+    padding: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+/* ===== App layout ===== */
+
+.app-container {
+    display: flex;
+    flex-direction: row;
+    gap: 0;
+    flex: 1;
+    width: 100%;
+    height: calc(100vh - 56px);
+}
+
+.panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 12px 16px;
+    box-sizing: border-box;
+}
+
+.panel-left {
+    flex: 1;
+}
+
+.panel-right {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.warnings-table-container {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.panel h2 {
+    margin: 0 0 8px 0;
+    font-size: 20px;
+}
+
+/* ===== Editor ===== */
+
+.editor-shell {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    flex: 1;
+    overflow: hidden;
+}
+
+.CodeMirror {
+    height: 100%;
+    font-size: 13px;
+}
+
+
+.warnings-table {
+    width: 100%;
+}
+
+.no-fix {
+    color: #999;
+}
+
+.selected-warning {
+    padding: 6px 0;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+
+
+.cm-warning-print {
+    background-color: rgba(255, 210, 140, 0.9);
+    border-radius: 3px;
+}
+
+.cm-warning-haskey {
+    background-color: rgba(160, 215, 255, 0.9);
+    border-radius: 3px;
+}
+
+.cm-warning-unknown {
+    background-color: rgba(255, 180, 180, 0.9);
+    border-radius: 3px;
+}

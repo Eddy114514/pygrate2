@@ -92,7 +92,7 @@ def formatwarning(message, category, filename, lineno, line=None):
     s = "%s:%s" % (filename, s)
     return s
 
-def formatwarningwithfix(message, fix, category, filename, lineno, line=None):
+def _formatwarningwithfix(message, fix, category, filename, lineno, line=None):
     """Function to format a warning the standard way with a fix."""
     try:
         unicodetype = unicode
@@ -119,6 +119,39 @@ def formatwarningwithfix(message, fix, category, filename, lineno, line=None):
                 pass
     s = "%s:%s" % (filename, s)
     return s
+
+def report_formatwarningwithfix(message, fix, category, filename, lineno, line=None):
+    try:
+        message = str(message)
+        fix = str(fix)
+    except UnicodeEncodeError:
+        pass
+
+    if fix:
+        full_message = "%s [fix=%s]" % (message, fix)
+    else:
+        full_message = message
+
+    if line is None:
+        line = linecache.getline(filename, lineno)
+    if not line:
+        line = ""
+    else:
+        line = line.strip()
+
+
+    return "%s:%s: %s: %s\n  %s\n" % (
+        filename,
+        lineno,
+        category.__name__,
+        full_message,
+        line
+    )
+
+if sys.py3kwarning:
+    formatwarningwithfix = report_formatwarningwithfix
+else:
+    formatwarningwithfix = _formatwarningwithfix
 
 def filterwarnings(action, message="", category=Warning, module="", lineno=0,
                    append=0):
