@@ -50,7 +50,10 @@
     <script>
         window.PYGRATE_DATA = {
             sourceText: {{ source_text|tojson|safe }},
-            warnings: {{ warnings_for_js|tojson|safe }}
+            warnings: {{ warnings_for_js|tojson|safe }},
+            projectRoot: {{ project_root|tojson|safe }},
+            filePath: {{ file_path|tojson|safe }},
+            runOutput: {{ run_output|tojson|safe }}
         };
     </script>
 

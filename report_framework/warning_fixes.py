@@ -16,9 +16,7 @@ WARNING_RULES = [
         "warning_type": "HAS_KEY_WARNING",
         "message_contains": "dict.has_key() not supported",
         "fix_kind": "regex_sub",
-        "pattern": re.compile(
-            r'(?P<obj>[A-Za-z_][\w\.\[\]\(\)]*)\.has_key\(\s*(?P<key>.+?)\s*\)'
-        ),
+        "pattern": re.compile(r'(?P<obj>[A-Za-z_][\w\.\[\]]*)\.has_key\(\s*(?P<key>.+?)\s*\)'),
         "replacement": r'\g<key> in \g<obj>',
         "fix_scope": "expression",
     },

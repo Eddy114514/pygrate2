@@ -3,9 +3,12 @@
 import os
 from typing import Dict, List
 
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, jsonify
 
-from framework import analyze_file, WarningRecord
+from file_io import save_file 
+
+from framework import analyze_file_with_output, WarningRecord
+
 
 # Default project root; adjust if you want a narrower scope.
 DEFAULT_PROJECT_ROOT = os.path.abspath(
@@ -39,12 +42,13 @@ def index():
     source_lines: List[str] = []
     warnings_by_line: Dict[int, List[WarningRecord]] = {}
     source_text = ""
+    run_output = ""
 
     if file_path:
         project_root = os.path.abspath(project_root)
 
         # backend analysis
-        warnings = analyze_file(project_root, file_path)
+        warnings, run_output = analyze_file_with_output(project_root, file_path)
         source_lines = _load_source_lines(project_root, file_path)
         source_text = "".join(source_lines)
 
@@ -73,8 +77,23 @@ def index():
         warnings=warnings,
         warnings_for_js=warnings_for_js,
         warnings_by_line=warnings_by_line,
+        run_output=run_output,
     )
+    
+@app.route("/save", methods=["POST"])
+def save():
+    data = request.get_json(force=True) or {}
 
+    project_root = data.get("root")
+    file_path = data.get("file")
+    source_text = data.get("sourceText")
+
+    try:
+        save_file(project_root, file_path, source_text)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+    return jsonify({"ok": True})
 
 if __name__ == "__main__":
     import argparse

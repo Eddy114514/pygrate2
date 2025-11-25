@@ -1,4 +1,8 @@
-d = {"a": 1}
-print (d.has_key("a") or d.has_key("b")) and d.has_key("C")
 
+d = {"a": 1}
+print("a" in d)
+
+data = {"a":1}
+"bbb" in data
+print(("hello"))
 

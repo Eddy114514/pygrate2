@@ -137,3 +137,34 @@ main {
     background-color: rgba(255, 180, 180, 0.9);
     border-radius: 3px;
 }
+
+.terminal {
+    margin-top: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #111;
+    color: #eee;
+    font-family: monospace;
+    display: flex;
+    flex-direction: column;
+    max-height: 200px;
+    overflow: hidden;
+}
+
+.terminal-header {
+    padding: 4px 8px;
+    font-size: 12px;
+    background-color: #222;
+    border-bottom: 1px solid #333;
+    flex-shrink: 0;
+}
+
+.terminal-body {
+    margin: 0;
+    padding: 6px 8px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    overflow-y: auto;
+    flex: 1;
+}
+

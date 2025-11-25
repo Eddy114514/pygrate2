@@ -14,9 +14,13 @@ function App() {
     const editorHostRef = useRef(null);
     const cmRef = useRef(null);
 
-    const data = window.PYGRATE_DATA || { sourceText: "", warnings: [] };
+    const data = window.PYGRATE_DATA || { sourceText: "", warnings: [], projectRoot: "", filePath: "" };
     const sourceText = data.sourceText || "";
     const warnings = data.warnings || [];
+    const projectRoot = data.projectRoot || "";
+    const filePath = data.filePath || "";
+    const [runOutput] = useState(data.runOutput || "");
+
 
     const [selectedWarning, setSelectedWarning] = useState(null);
 
@@ -73,13 +77,34 @@ function App() {
             });
 
             const marks = cmInstance.findMarksAt(pos);
+
             if (marks && marks.length > 0) {
+                let bestWarning = null;
+                let bestLen = Infinity;
+
                 for (let i = 0; i < marks.length; i++) {
-                    const w = marks[i].__pygrateWarning;
-                    if (w) {
-                        setSelectedWarning(w);
-                        return;
+                    const mark = marks[i];
+                    const w = mark.__pygrateWarning;
+                    if (!w) continue;
+
+                    const range = mark.find && mark.find();
+                    if (!range || !range.from || !range.to) {
+                        if (bestWarning === null) {
+                            bestWarning = w;
+                        }
+                        continue;
                     }
+
+                    const len = range.to.ch - range.from.ch;
+                    if (len < bestLen) {
+                        bestLen = len;
+                        bestWarning = w;
+                    }
+                }
+
+                if (bestWarning) {
+                    setSelectedWarning(bestWarning);
+                    return;
                 }
             }
 
@@ -141,6 +166,15 @@ function App() {
         const w = selectedWarning;
         return (
             <Card title={`Line ${w.line}`} size="small">
+                <p>
+                    <button
+                        type="button"
+                        disabled={!w.fix}
+                        onClick={() => applyFixes(w)}
+                    >
+                        Apply this fix
+                    </button>
+                </p>
                 <p><strong>Type:</strong> {w.type}</p>
                 <p><strong>Message:</strong> {w.message}</p>
                 <p>
@@ -159,17 +193,139 @@ function App() {
         );
     };
 
+    const applyFixes = (targetWarning = null) => {
+        const cm = cmRef.current;
+        if (!cm) return;
+
+        const allWarnings = targetWarning ? [targetWarning] : warnings;
+        const toApply = allWarnings.filter(
+            (w) => typeof w.fix === "string" && w.fix.length > 0
+        );
+
+        if (toApply.length === 0) {
+            alert("There are no auto-fixable warnings.");
+            return;
+        }
+
+        let lines = cm.getValue().split("\n");
+        const byLine = {};
+
+        toApply.forEach((w) => {
+            const idx = w.line - 1;
+            if (idx < 0) return;
+            if (!byLine[idx]) byLine[idx] = [];
+            byLine[idx].push(w);
+        });
+
+        Object.keys(byLine).forEach((k) => {
+            const idx = parseInt(k, 10);
+            let lineStr = lines[idx] || "";
+            const ws = byLine[idx];
+
+            const sorted = ws.slice().sort((a, b) => {
+                const lenA =
+                    (typeof a.colStart === "number" &&
+                        typeof a.colEnd === "number" &&
+                        a.colEnd > a.colStart)
+                        ? a.colEnd - a.colStart
+                        : (a.original ? a.original.length : 0);
+                const lenB =
+                    (typeof b.colStart === "number" &&
+                        typeof b.colEnd === "number" &&
+                        b.colEnd > b.colStart)
+                        ? b.colEnd - b.colStart
+                        : (b.original ? b.original.length : 0);
+                if (lenA !== lenB) return lenB - lenA;
+                const sa = typeof a.colStart === "number" ? a.colStart : 0;
+                const sb = typeof b.colStart === "number" ? b.colStart : 0;
+                return sa - sb;
+            });
+
+            sorted.forEach((w) => {
+                if (typeof w.fix !== "string" || !w.fix.length) return;
+
+                const orig = w.original || "";
+                if (!orig) return;
+
+                const pos = lineStr.indexOf(orig);
+                if (pos < 0) {
+                    return;
+                }
+
+                const start = pos;
+                const end = pos + orig.length;
+
+                lineStr =
+                    lineStr.slice(0, start) +
+                    w.fix +
+                    lineStr.slice(end);
+            });
+
+            lines[idx] = lineStr;
+        });
+
+        const newSource = lines.join("\n");
+        cm.setValue(newSource);
+    };
+
+
+
+
+
     return (
         <Layout style={{ height: "100%" }}>
             <Content style={{ height: "100%" }}>
                 <div className="app-container">
                     <div className="panel panel-left">
-                        <h2>Source</h2>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <h2>Source</h2>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    if (!cmRef.current) return;
+                                    const text = cmRef.current.getValue();
+                                    try {
+                                        const resp = await fetch("/save", {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({
+                                                root: projectRoot,
+                                                file: filePath,
+                                                sourceText: text,
+                                            }),
+                                        });
+                                        const json = await resp.json();
+                                        if (!json.ok) {
+                                            alert("Save failed: " + (json.error || "unknown error"));
+                                        }
+                                    } catch (e) {
+                                        alert("Save failed: " + e);
+                                    }
+                                }}
+                            >
+                                Save
+                            </button>
+                        </div>
                         <div ref={editorHostRef} className="editor-shell" />
+
+                        <div className="terminal">
+                            <div className="terminal-header">Output</div>
+                            <pre className="terminal-body">{runOutput}</pre>
+                        </div>
                     </div>
 
                     <div className="panel panel-right">
                         <h2>Warnings</h2>
+
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <h2>Warnings</h2>
+                            <button
+                                type="button"
+                                onClick={() => applyFixes(null)}
+                            >
+                                Fix all
+                            </button>
+                        </div>
 
                         <div style={{ marginBottom: 12 }}>
                             {renderSelectedWarning()}

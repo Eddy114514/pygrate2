@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from warning_fixes import WARNING_RULES
 
@@ -180,9 +180,9 @@ def _run_pygrate(file_path: str):
 
 
 
-def analyze_file(project_root: str, file_path: str) -> List[WarningRecord]:
+def analyze_file_with_output(project_root: str, file_path: str) -> Tuple[List[WarningRecord], str]:
     """
-    Run pygrate on a single file and return a list of WarningRecord objects.
+    Run pygrate on a single file and return (warnings, stdout).
     - project_root: root directory that defines the project (for relative paths).
     - file_path: absolute path or path relative to project_root.
 
@@ -194,7 +194,7 @@ def analyze_file(project_root: str, file_path: str) -> List[WarningRecord]:
     else:
         abs_file = os.path.abspath(file_path)
 
-    _, stderr = _run_pygrate(abs_file)
+    stdout, stderr = _run_pygrate(abs_file)
 
     blocks = _extract_warning_blocks(stderr)
     results: List[WarningRecord] = []
@@ -206,6 +206,13 @@ def analyze_file(project_root: str, file_path: str) -> List[WarningRecord]:
 
         abs_filename = os.path.abspath(raw["filename"])
         if abs_filename != abs_file:
+            continue
+        
+        # Avoid warning to print()
+        re.sub(r' {2,}', ' ', raw["line"])
+        if ("print must be called as a function" in raw["message"]
+                and re.match(r'^\s*print\(', raw["line"])
+            ):
             continue
 
         rel_filename = os.path.relpath(abs_filename, abs_root)
@@ -227,7 +234,12 @@ def analyze_file(project_root: str, file_path: str) -> List[WarningRecord]:
             )
             results.append(rec)
 
-    return results
+    return results, stdout
+
+
+def analyze_file(project_root: str, file_path: str) -> List[WarningRecord]:
+    warnings, _ = analyze_file_with_output(project_root, file_path)
+    return warnings
 
 
 def analyze_directory(project_root: str) -> List[WarningRecord]:
