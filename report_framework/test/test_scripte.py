@@ -1,3 +1,4 @@
 from test_scripte2 import hello
-print("pl")
+print(("pl"))
+# print ("pl")
 hello()

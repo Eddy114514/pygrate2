@@ -201,24 +201,11 @@ function App() {
         );
     };
 
-    const applyFixes = (targetWarning = null) => {
-        const cm = cmRef.current;
-        if (!cm) return;
-
-        const allWarnings = targetWarning ? [targetWarning] : warnings;
-        const toApply = allWarnings.filter(
-            (w) => typeof w.fix === "string" && w.fix.length > 0
-        );
-
-        if (toApply.length === 0) {
-            alert("There are no auto-fixable warnings.");
-            return;
-        }
-
-        let lines = cm.getValue().split("\n");
+    function applyFixesToText(text, warningsList) {
+        let lines = text.split("\n");
         const byLine = {};
 
-        toApply.forEach((w) => {
+        warningsList.forEach((w) => {
             const idx = w.line - 1;
             if (idx < 0) return;
             if (!byLine[idx]) byLine[idx] = [];
@@ -272,8 +259,55 @@ function App() {
             lines[idx] = lineStr;
         });
 
-        const newSource = lines.join("\n");
+        return lines.join("\n");
+    }
+
+    const applyFixes = (targetWarning = null) => {
+        const cm = cmRef.current;
+        if (!cm) return;
+
+        const allWarnings = targetWarning ? [targetWarning] : warnings;
+        const toApply = allWarnings.filter(
+            (w) => typeof w.fix === "string" && w.fix.length > 0
+        );
+
+        if (toApply.length === 0) {
+            alert("There are no auto-fixable warnings.");
+            return;
+        }
+
+        const currentText = cm.getValue();
+        const newSource = applyFixesToText(currentText, toApply);
         cm.setValue(newSource);
+        setFiles(prev => ({
+            ...prev,
+            [activeFile]: newSource,
+        }));
+    };
+
+    const applyFixesAllFiles = async () => {
+        let updatedFiles = { ...files };
+
+        for (const file of Object.keys(updatedFiles)) {
+            const fileWarnings = warningsAll.filter(
+                (w) => w.file === file && typeof w.fix === "string" && w.fix.length > 0
+            );
+            if (!fileWarnings.length) continue;
+
+            const originalText =
+                file === activeFile && cmRef.current
+                    ? cmRef.current.getValue()
+                    : (updatedFiles[file] || "");
+
+            const newText = applyFixesToText(originalText, fileWarnings);
+            updatedFiles[file] = newText;
+        }
+
+        setFiles(updatedFiles);
+
+        if (cmRef.current && activeFile && updatedFiles[activeFile] != null) {
+            cmRef.current.setValue(updatedFiles[activeFile]);
+        }
     };
 
     return (
@@ -287,21 +321,47 @@ function App() {
                                 type="button"
                                 onClick={async () => {
                                     if (!cmRef.current) return;
-                                    const text = cmRef.current.getValue();
+                                    const currentText = cmRef.current.getValue();
+
+                                    const updatedFiles = {
+                                        ...files,
+                                        [activeFile]: currentText,
+                                    };
+
+                                    setFiles(updatedFiles);
+
                                     try {
-                                        const resp = await fetch("/save", {
-                                            method: "POST",
-                                            headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({
-                                                root: projectRoot,
-                                                file: activeFile,
-                                                sourceText: text,
-                                            }),
-                                        });
+                                        const resp = await fetch("/refreshprev", {
+                                                method: "POST",
+                                                headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({
+                                                    root: projectRoot,
+                                                }),
+                                            });
                                         const json = await resp.json();
                                         if (!json.ok) {
-                                            alert("Save failed: " + (json.error || "unknown error"));
+                                                alert("Refresh failed for pygrate_history: " + (json.error || "unknown error"));
+                                                return;
+                                            }
+                                        const entries = Object.entries(updatedFiles);
+                                        for (let i = 0; i < entries.length; i++) {
+                                            const [fname, content] = entries[i];
+                                            const resp = await fetch("/save", {
+                                                method: "POST",
+                                                headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({
+                                                    root: projectRoot,
+                                                    file: fname,
+                                                    sourceText: content,
+                                                }),
+                                            });
+                                            const json = await resp.json();
+                                            if (!json.ok) {
+                                                alert("Save failed for " + fname + ": " + (json.error || "unknown error"));
+                                                return;
+                                            }
                                         }
+                                        
                                     } catch (e) {
                                         alert("Save failed: " + e);
                                     }
@@ -315,31 +375,13 @@ function App() {
                                 <button
                                     key={f}
                                     type="button"
-                                    onClick={async () => {
+                                    onClick={() => {
                                         if (cmRef.current && activeFile) {
                                             const text = cmRef.current.getValue();
-                                            try {
-                                                const resp = await fetch("/save", {
-                                                    method: "POST",
-                                                    headers: { "Content-Type": "application/json" },
-                                                    body: JSON.stringify({
-                                                        root: projectRoot,
-                                                        file: activeFile,
-                                                        sourceText: text,
-                                                    }),
-                                                });
-                                                const json = await resp.json();
-                                                if (!json.ok) {
-                                                    alert("Save failed: " + (json.error || "unknown error"));
-                                                } else {
-                                                    setFiles(prev => ({
-                                                        ...prev,
-                                                        [activeFile]: text,
-                                                    }));
-                                                }
-                                            } catch (e) {
-                                                alert("Save failed: " + e);
-                                            }
+                                            setFiles(prev => ({
+                                                ...prev,
+                                                [activeFile]: text,
+                                            }));
                                         }
                                         setSelectedWarning(null);
                                         setActiveFile(f);
@@ -371,7 +413,7 @@ function App() {
                             <h2>Warnings</h2>
                             <button
                                 type="button"
-                                onClick={() => applyFixes(null)}
+                                onClick={applyFixesAllFiles}
                             >
                                 Fix all
                             </button>

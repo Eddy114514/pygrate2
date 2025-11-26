@@ -10,7 +10,7 @@ from flask import Flask, request, render_template, jsonify,  redirect, url_for
 from markupsafe import Markup
 from difflib import HtmlDiff
 
-from file_io import save_with_backup
+from file_io import *
 
 from framework import analyze_file_with_output, WarningRecord, build_tree_for_ui
 
@@ -44,6 +44,10 @@ def index():
     engine_root = request.args.get("engine") or DEFAULT_PROJECT_ROOT
     project_root = request.args.get("root") or ""
     file_path = request.args.get("file") or ""
+    
+    global CURRENT_PROJECT_ROOT
+    if project_root:
+        CURRENT_PROJECT_ROOT = os.path.abspath(project_root)
     
     if not engine_root or not project_root:
         return redirect(url_for("project_view"))
@@ -110,23 +114,57 @@ def index():
         run_output=run_output,
     )
     
-@app.route("/save", methods=["POST"])
-def save():
+    
+    
+def _handle_save_like_request(save_func):
+    global CURRENT_PROJECT_ROOT
     data = request.get_json(force=True) or {}
     project_root = data.get("root")
     file_path = data.get("file")
     source_text = data.get("sourceText")
 
+    if project_root:
+        CURRENT_PROJECT_ROOT = os.path.abspath(project_root)
+
     if not project_root or not file_path or source_text is None:
         return jsonify({"ok": False, "error": "missing parameters"}), 400
 
     try:
-        save_with_backup(project_root, file_path, source_text)
+        save_func(project_root, file_path, source_text)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
     return jsonify({"ok": True})
+    
+@app.route("/save", methods=["POST"])
+def save():
+    def _impl(project_root, file_path, source_text):
+        save_with_backup(project_root, file_path, source_text)
 
+    return _handle_save_like_request(_impl)
+
+
+@app.route("/autosave", methods=["POST"])
+def autosave():
+    def _impl(project_root, file_path, source_text):
+        save(project_root, file_path, source_text)
+
+    return _handle_save_like_request(_impl)
+
+@app.route("/refreshprev", methods=["POST"])
+def refreshprev():
+    global CURRENT_PROJECT_ROOT
+    data = request.get_json(force=True) or {}
+    project_root = data.get("root")
+    if project_root:
+        CURRENT_PROJECT_ROOT = os.path.abspath(project_root)
+
+    try:
+        refresh_prev_files(project_root)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    return jsonify({"ok": True})
 
 @app.route("/diff", methods=["GET"])
 def diff_view():
@@ -136,6 +174,7 @@ def diff_view():
     if not project_root:
         return redirect(url_for("project_view"))
     project_root = os.path.abspath(project_root)
+    global CURRENT_PROJECT_ROOT
     if project_root:
         CURRENT_PROJECT_ROOT = os.path.abspath(project_root)
 
@@ -233,8 +272,7 @@ def cleanup_pygrate_history():
     except Exception as e:
         print("Failed to remove .pygrate_history:", e)
 
-if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-    atexit.register(cleanup_pygrate_history)
+atexit.register(cleanup_pygrate_history)
 
 if __name__ == "__main__":
     import argparse
@@ -243,4 +281,4 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=5000)
     args = parser.parse_args()
 
-    app.run(debug=True, port=args.port)
+    app.run(debug=False, port=args.port)
