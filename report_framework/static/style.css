@@ -109,7 +109,6 @@ main {
     font-size: 13px;
 }
 
-
 .warnings-table {
     width: 100%;
 }
@@ -124,7 +123,7 @@ main {
     margin-bottom: 8px;
 }
 
-
+/* warning highlight */
 
 .cm-warning-print {
     background-color: rgba(255, 210, 140, 0.9);
@@ -172,7 +171,6 @@ main {
     white-space: pre-wrap;
     overflow-y: auto;
     flex: 1;
-
     min-height: 40px;
 }
 
@@ -215,7 +213,6 @@ main {
     border-top: 1px solid #ddd;
 }
 
-
 table.diff {
     border-collapse: collapse;
     width: 100%;
@@ -244,17 +241,18 @@ table.diff .diff_next {
 }
 
 table.diff .diff_add {
-    background-color: #e6ffed;  
+    background-color: #e6ffed;
 }
 
 table.diff .diff_chg {
-    background-color: #fff5b1;  
+    background-color: #fff5b1;
 }
 
 table.diff .diff_sub {
-    background-color: #ffeef0;  
+    background-color: #ffeef0;
 }
 
+/* ===== Scrollbars ===== */
 
 .editor-shell::-webkit-scrollbar,
 .terminal-body::-webkit-scrollbar,
@@ -285,6 +283,8 @@ table.diff .diff_sub {
 .warnings-table-container::-webkit-scrollbar-track {
     background: #eee;
 }
+
+/* ===== Project view ===== */
 
 .project-container {
     flex: 1;
@@ -334,3 +334,56 @@ table.diff .diff_sub {
     font-weight: bold;
 }
 
+/* ===== Diff stats (GitHub-style bar) ===== */
+
+.diff-page {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 16px;
+    box-sizing: border-box;
+}
+
+.diff-stat-wrapper {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.diff-stat-bar {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: monospace;
+    font-size: 13px;
+}
+
+.diff-stat-bar .add {
+    color: #2ecc71;
+    font-weight: bold;
+}
+
+.diff-stat-bar .del {
+    color: #e74c3c;
+    font-weight: bold;
+}
+
+.diff-stat-bar .bar {
+    display: inline-flex;
+    gap: 3px;
+}
+
+.diff-stat-bar .blk {
+    width: 10px;
+    height: 10px;
+    background-color: #81c784;
+    border-radius: 2px;
+}
+
+.diff-stat-bar .blk:nth-child(odd) {
+    background-color: #66bb6a;
+}
+
+.diff-stat-bar .blk.empty {
+    background-color: #ccc;
+}

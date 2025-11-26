@@ -34,10 +34,36 @@
 </header>
 
 <main>
-    <div class="diff-container" id="diff-root">
-        {% if diff_text is none or not diff_text %}
-            <p style="margin:0;">No diff available. Please select a file, edit &amp; save at least once.</p>
+    <div class="diff-page">
+        {% if add_count is not none %}
+        <div class="diff-stat-wrapper">
+            <div class="diff-stat-bar">
+                <span class="add">+{{ add_count }}</span>
+                <span class="del">-{{ del_count }}</span>
+
+                <span class="bar">
+                    {% set total = add_count + del_count %}
+                    {% if total > 0 %}
+                        {% set blocks = (total // 5) + 1 %}
+                        {% if blocks > 8 %}
+                            {% set blocks = 8 %}
+                        {% endif %}
+                        {% for _ in range(blocks) %}
+                            <span class="blk"></span>
+                        {% endfor %}
+                    {% else %}
+                        <span class="blk empty"></span>
+                    {% endif %}
+                </span>
+            </div>
+        </div>
         {% endif %}
+
+        <div class="diff-container" id="diff-root">
+            {% if diff_text is none or not diff_text %}
+                <p style="margin:0;">No diff available. Please select a file, edit &amp; save at least once.</p>
+            {% endif %}
+        </div>
     </div>
 </main>
 

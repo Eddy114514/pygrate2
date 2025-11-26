@@ -174,11 +174,15 @@ def diff_view():
     if not project_root:
         return redirect(url_for("project_view"))
     project_root = os.path.abspath(project_root)
+
     global CURRENT_PROJECT_ROOT
     if project_root:
         CURRENT_PROJECT_ROOT = os.path.abspath(project_root)
 
     history_root = os.path.join(project_root, ".pygrate_history")
+
+    add_count = None
+    del_count = None
 
     if not os.path.isdir(history_root):
         diff_text = None
@@ -226,6 +230,17 @@ def diff_view():
         if not all_diff_lines:
             diff_text = None
         else:
+            add = 0
+            delete = 0
+            for ln in all_diff_lines:
+                if ln.startswith("+") and not ln.startswith("+++"):
+                    add += 1
+                elif ln.startswith("-") and not ln.startswith("---"):
+                    delete += 1
+
+            add_count = add
+            del_count = delete
+
             diff_text = "\n".join(all_diff_lines)
 
     return render_template(
@@ -233,7 +248,10 @@ def diff_view():
         project_root=project_root,
         file_path=file_path,
         diff_text=diff_text,
+        add_count=add_count,
+        del_count=del_count,
     )
+
     
 @app.route("/project", methods=["GET"])
 def project_view():
