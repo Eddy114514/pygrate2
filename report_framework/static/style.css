@@ -1,3 +1,4 @@
+/*report_framework/static/style.css*/
 /* ===== Layout ===== */
 
 body {
@@ -73,6 +74,8 @@ main {
 
 .panel-left {
     flex: 1;
+    padding-bottom: 5ex;
+    box-sizing: border-box;
 }
 
 .panel-right {
@@ -138,6 +141,8 @@ main {
     border-radius: 3px;
 }
 
+/* ===== Terminal output ===== */
+
 .terminal {
     margin-top: 8px;
     border: 1px solid #ccc;
@@ -149,6 +154,7 @@ main {
     flex-direction: column;
     max-height: 200px;
     overflow: hidden;
+    flex-shrink: 0;
 }
 
 .terminal-header {
@@ -161,10 +167,170 @@ main {
 
 .terminal-body {
     margin: 0;
-    padding: 6px 8px;
+    padding: 8px 10px;
     font-size: 12px;
     white-space: pre-wrap;
     overflow-y: auto;
     flex: 1;
+
+    min-height: 40px;
+}
+
+/* ===== Top navigation (Editor / Diff tabs) ===== */
+
+.top-nav {
+    margin-top: 8px;
+    display: flex;
+    gap: 12px;
+}
+
+.nav-link {
+    color: #ccc;
+    text-decoration: none;
+    font-size: 14px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background-color: #333;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.nav-link:hover {
+    background-color: #444;
+    color: #fff;
+}
+
+.nav-link-active {
+    background-color: #555;
+    color: #fff;
+    font-weight: bold;
+}
+
+/* ===== Diff view ===== */
+
+.diff-container {
+    flex: 1;
+    padding: 16px;
+    overflow: auto;
+    background-color: #fff;
+    border-top: 1px solid #ddd;
+}
+
+
+table.diff {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: monospace;
+    font-size: 13px;
+}
+
+table.diff th {
+    background-color: #f0f0f0;
+    padding: 4px 6px;
+    border: 1px solid #ccc;
+}
+
+table.diff td {
+    padding: 3px 6px;
+    border: 1px solid #ddd;
+}
+
+table.diff .diff_header {
+    background-color: #eee;
+    font-weight: bold;
+}
+
+table.diff .diff_next {
+    background-color: #f7f7f7;
+}
+
+table.diff .diff_add {
+    background-color: #e6ffed;  
+}
+
+table.diff .diff_chg {
+    background-color: #fff5b1;  
+}
+
+table.diff .diff_sub {
+    background-color: #ffeef0;  
+}
+
+
+.editor-shell::-webkit-scrollbar,
+.terminal-body::-webkit-scrollbar,
+.diff-container::-webkit-scrollbar,
+.warnings-table-container::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.editor-shell::-webkit-scrollbar-thumb,
+.terminal-body::-webkit-scrollbar-thumb,
+.diff-container::-webkit-scrollbar-thumb,
+.warnings-table-container::-webkit-scrollbar-thumb {
+    background: #bbb;
+    border-radius: 4px;
+}
+
+.editor-shell::-webkit-scrollbar-thumb:hover,
+.terminal-body::-webkit-scrollbar-thumb:hover,
+.diff-container::-webkit-scrollbar-thumb:hover,
+.warnings-table-container::-webkit-scrollbar-thumb:hover {
+    background: #999;
+}
+
+.editor-shell::-webkit-scrollbar-track,
+.terminal-body::-webkit-scrollbar-track,
+.diff-container::-webkit-scrollbar-track,
+.warnings-table-container::-webkit-scrollbar-track {
+    background: #eee;
+}
+
+.project-container {
+    flex: 1;
+    padding: 12px 16px;
+    overflow: auto;
+    box-sizing: border-box;
+}
+
+.project-layout {
+    display: flex;
+    gap: 24px;
+    height: 100%;
+}
+
+.project-tree-panel {
+    width: 40%;
+    min-width: 260px;
+    max-width: 420px;
+    overflow: auto;
+    border-right: 1px solid #ddd;
+    padding-right: 16px;
+    box-sizing: border-box;
+}
+
+.project-analyze-panel {
+    flex: 1;
+    padding-left: 8px;
+    box-sizing: border-box;
+}
+
+.file-tree {
+    list-style: none;
+    padding-left: 16px;
+    margin: 4px 0;
+}
+
+.file-leaf {
+    margin: 2px 0;
+    font-family: monospace;
+}
+
+.dir-node {
+    margin: 4px 0;
+}
+
+.dir-name {
+    font-weight: bold;
 }
 

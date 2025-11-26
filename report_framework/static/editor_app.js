@@ -1,6 +1,6 @@
-//report_framework/static/app.js
 const { useEffect, useRef, useState } = React;
 const { Table, Card, Typography, Empty, Layout } = antd;
+
 const { Text } = Typography;
 const { Content } = Layout;
 
@@ -14,13 +14,17 @@ function App() {
     const editorHostRef = useRef(null);
     const cmRef = useRef(null);
 
-    const data = window.PYGRATE_DATA || { sourceText: "", warnings: [], projectRoot: "", filePath: "" };
-    const sourceText = data.sourceText || "";
-    const warnings = data.warnings || [];
+    const data = window.PYGRATE_DATA || { files: {}, warnings: [], projectRoot: "", currentFile: "" };
+    const files = data.files || {};
+    const warningsAll = data.warnings || [];
     const projectRoot = data.projectRoot || "";
-    const filePath = data.filePath || "";
+    const initialFile = data.currentFile || Object.keys(files)[0] || "";
+
+    const [activeFile, setActiveFile] = useState(initialFile);
     const [runOutput] = useState(data.runOutput || "");
 
+    const sourceText = files[activeFile] || "";
+    const warnings = warningsAll.filter(w => w.file === activeFile);
 
     const [selectedWarning, setSelectedWarning] = useState(null);
 
@@ -48,16 +52,19 @@ function App() {
             let fromCh = 0;
             let toCh = 0;
 
-            if (
-                typeof w.colStart === "number" &&
-                typeof w.colEnd === "number" &&
-                w.colStart >= 0 &&
-                w.colEnd >= w.colStart
-            ) {
-                fromCh = w.colStart;
-                toCh = w.colEnd;
+            const lineText = cm.getLine(lineIdx) || "";
+            const orig = w.original || "";
+
+            if (orig) {
+                const idx = lineText.indexOf(orig);
+                if (idx >= 0) {
+                    fromCh = idx;
+                    toCh = idx + orig.length;
+                } else {
+                    fromCh = 0;
+                    toCh = lineText.length;
+                }
             } else {
-                const lineText = cm.getLine(lineIdx);
                 fromCh = 0;
                 toCh = lineText.length;
             }
@@ -268,10 +275,6 @@ function App() {
         cm.setValue(newSource);
     };
 
-
-
-
-
     return (
         <Layout style={{ height: "100%" }}>
             <Content style={{ height: "100%" }}>
@@ -290,7 +293,7 @@ function App() {
                                             headers: { "Content-Type": "application/json" },
                                             body: JSON.stringify({
                                                 root: projectRoot,
-                                                file: filePath,
+                                                file: activeFile,
                                                 sourceText: text,
                                             }),
                                         });
@@ -305,6 +308,27 @@ function App() {
                             >
                                 Save
                             </button>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, margin: "8px 0" }}>
+                            {Object.keys(files).map((f) => (
+                                <button
+                                    key={f}
+                                    type="button"
+                                    onClick={() => {
+                                        setSelectedWarning(null);
+                                        setActiveFile(f);
+                                    }}
+                                    style={{
+                                        padding: "4px 8px",
+                                        borderRadius: 4,
+                                        border: f === activeFile ? "1px solid #1890ff" : "1px solid #ddd",
+                                        background: f === activeFile ? "#e6f7ff" : "#fff",
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    {f}
+                                </button>
+                            ))}
                         </div>
                         <div ref={editorHostRef} className="editor-shell" />
 

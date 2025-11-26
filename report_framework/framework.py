@@ -5,6 +5,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
+from treelib import Node, Tree
 
 from warning_fixes import WARNING_RULES
 
@@ -28,6 +29,24 @@ class WarningRecord:
 HEADER_RE = re.compile(
     r'^(?P<filename>.*?):(?P<lineno>\d+): (?P<category>[^:]+): (?P<msgfix>.*)$'
 )
+
+def build_tree_for_ui(root):
+    tree = {}
+
+    for dirpath, dirs, files in os.walk(root):
+        rel = os.path.relpath(dirpath, root)
+
+        node = tree
+        if rel != ".":
+            for part in rel.split(os.sep):
+                node = node.setdefault(part, {})
+
+        file_list = node.setdefault("__files__", [])
+        for f in files:
+            if f.endswith(".py"):
+                file_list.append(f)
+
+    return tree
 
 
 def _parse_warning_block(lines: List[str]):
@@ -122,7 +141,16 @@ def _enrich_with_rule(raw: dict):
                 if new_line != src:
                     auto_fix_line = new_line
 
-            instances.append((warning_type, auto_fix_line, src, 0, len(src)))
+            highlight_start = 0
+            highlight_end = len(src)
+            if pattern is not None:
+                m = pattern.search(src)
+                if m:
+                    highlight_start, highlight_end = m.start(), m.end()
+
+            instances.append(
+                (warning_type, auto_fix_line, src, highlight_start, highlight_end)
+            )
 
         elif fix_scope == "expression":
             matches = list(pattern.finditer(src)) if pattern is not None else []
@@ -161,16 +189,18 @@ def _enrich_with_rule(raw: dict):
 
 
 
-def _run_pygrate(file_path: str):
+def _run_pygrate(file_path: str, pygrate_root: Optional[str] = None):
     """
     Execute pygrate2's ./python -3 <file_path> and return (stdout, stderr).
     """
     here = os.path.abspath(os.path.dirname(__file__))         # pygrate2/report_framework
-    pygrate_root = os.path.abspath(os.path.join(here, ".."))  # pygrate2/
+    if pygrate_root is None:
+        pygrate_root = os.path.abspath(os.path.join(here, ".."))  # pygrate2/
+
     python_exec = os.path.join(pygrate_root, "python")
 
     proc = subprocess.Popen(
-        [python_exec, "-3", file_path],
+        [python_exec, "-3", "-B", file_path],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -180,7 +210,7 @@ def _run_pygrate(file_path: str):
 
 
 
-def analyze_file_with_output(project_root: str, file_path: str) -> Tuple[List[WarningRecord], str]:
+def analyze_file_with_output(pygrate_root: Optional[str], project_root: str, file_path: str) -> Tuple[List[WarningRecord], str]:
     """
     Run pygrate on a single file and return (warnings, stdout).
     - project_root: root directory that defines the project (for relative paths).
@@ -194,7 +224,7 @@ def analyze_file_with_output(project_root: str, file_path: str) -> Tuple[List[Wa
     else:
         abs_file = os.path.abspath(file_path)
 
-    stdout, stderr = _run_pygrate(abs_file)
+    stdout, stderr = _run_pygrate(abs_file, pygrate_root)
 
     blocks = _extract_warning_blocks(stderr)
     results: List[WarningRecord] = []
@@ -205,11 +235,13 @@ def analyze_file_with_output(project_root: str, file_path: str) -> Tuple[List[Wa
             continue
 
         abs_filename = os.path.abspath(raw["filename"])
-        if abs_filename != abs_file:
+        abs_root = os.path.abspath(project_root)
+        if not abs_filename.startswith(abs_root):
             continue
+
         
         # Avoid warning to print()
-        re.sub(r' {2,}', ' ', raw["line"])
+        raw["line"] = re.sub(r' {2,}', ' ', raw["line"])
         if ("print must be called as a function" in raw["message"]
                 and re.match(r'^\s*print\(', raw["line"])
             ):
@@ -237,13 +269,12 @@ def analyze_file_with_output(project_root: str, file_path: str) -> Tuple[List[Wa
     return results, stdout
 
 
-def analyze_file(project_root: str, file_path: str) -> List[WarningRecord]:
-    warnings, _ = analyze_file_with_output(project_root, file_path)
+def analyze_file(pygrate_root: Optional[str], project_root: str, file_path: str) -> List[WarningRecord]:
+    warnings, _ = analyze_file_with_output(pygrate_root, project_root, file_path)
     return warnings
 
 
-def analyze_directory(project_root: str) -> List[WarningRecord]:
-
+def analyze_directory(pygrate_root: Optional[str], project_root: str) -> List[WarningRecord]:
     abs_root = os.path.abspath(project_root)
     all_results: List[WarningRecord] = []
 
@@ -251,7 +282,7 @@ def analyze_directory(project_root: str) -> List[WarningRecord]:
         for f in files:
             if not f.endswith(".py"):
                 continue
-            fp = os.path.join(root, f)
-            all_results.extend(analyze_file(abs_root, fp))
+            rel = os.path.relpath(os.path.join(root, f), abs_root)
+            all_results.extend(analyze_file(pygrate_root, project_root, rel))
 
     return all_results

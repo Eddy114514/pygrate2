@@ -29,7 +29,7 @@
 </head>
 <body>
     <header>
-        <form method="GET" action="/">
+        <form method="EDIT-GET" action="/">
             <label>
                 Project root: 
                 <input type="text" name="root" value="{{ project_root }}">
@@ -40,6 +40,15 @@
             </label>
             <button type="submit">Analyze</button>
         </form>
+
+        <nav class="top-nav">
+            <a href="{{ url_for('index', root=project_root, file=file_path) }}" class="nav-link nav-link-active">
+                Editor
+            </a>
+            <a href="{{ url_for('diff_view', root=project_root, file=file_path) }}" class="nav-link">
+                Diff
+            </a>
+        </nav>
     </header>
 
     <main>
@@ -49,15 +58,16 @@
     <!-- Initial data for React app -->
     <script>
         window.PYGRATE_DATA = {
-            sourceText: {{ source_text|tojson|safe }},
+            files: {{ files_map|tojson|safe }},
             warnings: {{ warnings_for_js|tojson|safe }},
             projectRoot: {{ project_root|tojson|safe }},
-            filePath: {{ file_path|tojson|safe }},
+            currentFile: {{ file_path|tojson|safe }},
             runOutput: {{ run_output|tojson|safe }}
         };
     </script>
 
     <!-- React app (JSX compiled by Babel in the browser) -->
-    <script type="text/babel" src="{{ url_for('static', filename='app.js') }}"></script>
+    <script type="text/babel" src="{{ url_for('static', filename='editor_app.js') }}"></script>
+
 </body>
 </html>

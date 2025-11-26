@@ -1,0 +1,6 @@
+
+d = {"a": 1}
+boold= d.has_key("a") or (d.has_key("c") and d.has_key("b")) and d.has_key("a")
+print(boold)
+a_key ="aaaaa"
+print boold or d.has_key("a") or d.has_key(a_key)

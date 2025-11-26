@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Pygrate Diff View</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css" />
+</head>
+<body>
+<header>
+    <form method="GET" action="/">
+        <label>
+            Project root:
+            <input type="text" name="root" value="{{ project_root }}">
+        </label>
+        <label>
+            File (relative to root):
+            <input type="text" name="file" value="{{ file_path }}">
+        </label>
+        <button type="submit">Analyze</button>
+    </form>
+
+    <nav class="top-nav">
+        <a href="{{ url_for('index', root=project_root, file=file_path) }}" class="nav-link">
+            Editor
+        </a>
+        <a href="{{ url_for('diff_view', root=project_root, file=file_path) }}" class="nav-link nav-link-active">
+            Diff
+        </a>
+    </nav>
+</header>
+
+<main>
+    <div class="diff-container" id="diff-root">
+        {% if diff_text is none or not diff_text %}
+            <p style="margin:0;">No diff available. Please select a file, edit &amp; save at least once.</p>
+        {% endif %}
+    </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html.min.js"></script>
+
+<script>
+    (function () {
+        const diffText = {{ diff_text|default('', true)|tojson|safe }};
+        if (!diffText) {
+            return;
+        }
+
+        const target = document.getElementById('diff-root');
+        const html = Diff2Html.html(diffText, {
+            drawFileList: false,
+            matching: 'lines',
+            outputFormat: 'side-by-side'
+        });
+
+        target.innerHTML = html;
+    })();
+</script>
+</body>
+</html>

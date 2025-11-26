@@ -7,8 +7,8 @@ WARNING_RULES = [
         "warning_type": "PRINT_WARNING",
         "message_contains": "print must be called as a function",
         "fix_kind": "regex_sub",
-        "pattern": re.compile(r'^(?P<indent>\s*)print\s+(?P<body>.*)$'),
-        "replacement": r'\g<indent>print(\g<body>)',
+        "pattern": re.compile(r"print\s+(.+)"),
+        "replacement": r"print(\1)",
         "fix_scope": "line",
     },
 
