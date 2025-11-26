@@ -15,9 +15,10 @@ function App() {
     const cmRef = useRef(null);
 
     const data = window.PYGRATE_DATA || { files: {}, warnings: [], projectRoot: "", currentFile: "" };
-    const files = data.files || {};
     const warningsAll = data.warnings || [];
     const projectRoot = data.projectRoot || "";
+
+    const [files, setFiles] = useState(data.files || {});
     const initialFile = data.currentFile || Object.keys(files)[0] || "";
 
     const [activeFile, setActiveFile] = useState(initialFile);
@@ -314,7 +315,32 @@ function App() {
                                 <button
                                     key={f}
                                     type="button"
-                                    onClick={() => {
+                                    onClick={async () => {
+                                        if (cmRef.current && activeFile) {
+                                            const text = cmRef.current.getValue();
+                                            try {
+                                                const resp = await fetch("/save", {
+                                                    method: "POST",
+                                                    headers: { "Content-Type": "application/json" },
+                                                    body: JSON.stringify({
+                                                        root: projectRoot,
+                                                        file: activeFile,
+                                                        sourceText: text,
+                                                    }),
+                                                });
+                                                const json = await resp.json();
+                                                if (!json.ok) {
+                                                    alert("Save failed: " + (json.error || "unknown error"));
+                                                } else {
+                                                    setFiles(prev => ({
+                                                        ...prev,
+                                                        [activeFile]: text,
+                                                    }));
+                                                }
+                                            } catch (e) {
+                                                alert("Save failed: " + e);
+                                            }
+                                        }
                                         setSelectedWarning(null);
                                         setActiveFile(f);
                                     }}

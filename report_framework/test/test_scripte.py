@@ -1,3 +1,3 @@
 from test_scripte2 import hello
-s
+print("pl")
 hello()

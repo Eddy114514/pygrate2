@@ -3,6 +3,8 @@
 import os
 from typing import Dict, List
 
+import atexit
+import shutil
 from flask import Flask, request, render_template, jsonify,  redirect, url_for
 
 from markupsafe import Markup
@@ -17,6 +19,7 @@ from framework import analyze_file_with_output, WarningRecord, build_tree_for_ui
 DEFAULT_PROJECT_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..")
 )
+CURRENT_PROJECT_ROOT = None
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
@@ -133,6 +136,8 @@ def diff_view():
     if not project_root:
         return redirect(url_for("project_view"))
     project_root = os.path.abspath(project_root)
+    if project_root:
+        CURRENT_PROJECT_ROOT = os.path.abspath(project_root)
 
     history_root = os.path.join(project_root, ".pygrate_history")
 
@@ -193,8 +198,11 @@ def diff_view():
     
 @app.route("/project", methods=["GET"])
 def project_view():
+    global CURRENT_PROJECT_ROOT
     engine_root = request.args.get("engine") or DEFAULT_PROJECT_ROOT
     project_root = request.args.get("root") or ""
+    if project_root != "":
+        CURRENT_PROJECT_ROOT = os.path.abspath(project_root)
 
     file_tree = None
     abs_root = None
@@ -211,6 +219,22 @@ def project_view():
         file_tree=file_tree,
     )
 
+
+def cleanup_pygrate_history():
+    try:
+        global CURRENT_PROJECT_ROOT
+        root = CURRENT_PROJECT_ROOT
+        if not root:
+            return
+        history_root = os.path.join(root, ".pygrate_history")
+        if os.path.isdir(history_root):
+            shutil.rmtree(history_root)
+            print("Removed .pygrate_history on exit.")
+    except Exception as e:
+        print("Failed to remove .pygrate_history:", e)
+
+if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    atexit.register(cleanup_pygrate_history)
 
 if __name__ == "__main__":
     import argparse
