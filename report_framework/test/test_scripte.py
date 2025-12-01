@@ -1,4 +1,4 @@
 from test_scripte2 import hello
-print(("pl"))
-
+d = {"a":1}
+print("a" in d)
 hello()

@@ -1,7 +1,4 @@
 from test_scripte2 import hello
-print(("pl"))
-#print "pl"
-#print "pl"
-#print "pl"
-#print "pl"
+d = {"a":1}
+print d.has_key("a")
 hello()

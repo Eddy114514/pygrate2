@@ -4,10 +4,9 @@ const { Table, Card, Typography, Empty, Layout } = antd;
 const { Text } = Typography;
 const { Content } = Layout;
 
-function typeToHighlightClass(t) {
-    if (t === "PRINT_WARNING") return "cm-warning-print";
-    if (t === "HAS_KEY_WARNING") return "cm-warning-haskey";
-    return "cm-warning-unknown";
+function typeToHighlightClass(highlight) {
+    const key = highlight || "unknown";
+    return "cm-warning-" + key;
 }
 
 function App() {
@@ -48,7 +47,7 @@ function App() {
             if (!warningsByLine[lineIdx]) warningsByLine[lineIdx] = [];
             warningsByLine[lineIdx].push(w);
 
-            const cls = typeToHighlightClass(w.type);
+            const cls = typeToHighlightClass(w.highlight);
 
             let fromCh = 0;
             let toCh = 0;

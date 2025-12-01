@@ -25,6 +25,7 @@ class WarningRecord:
     auto_fix_line: Optional[str] = None
     col_start: Optional[int] = None
     col_end: Optional[int] = None
+    highlight: str = "unknown"
 
 HEADER_RE = re.compile(
     r'^(?P<filename>.*?):(?P<lineno>\d+): (?P<category>[^:]+): (?P<msgfix>.*)$'
@@ -133,6 +134,7 @@ def _enrich_with_rule(raw: dict):
         fix_scope = rule.get("fix_scope", "line")
         pattern = rule.get("pattern")
         replacement = rule.get("replacement")
+        highlight_key = rule.get("highlight")
 
         if fix_scope == "line":
             auto_fix_line = None
@@ -149,7 +151,7 @@ def _enrich_with_rule(raw: dict):
                     highlight_start, highlight_end = m.start(), m.end()
 
             instances.append(
-                (warning_type, auto_fix_line, src, highlight_start, highlight_end)
+                (warning_type, auto_fix_line, src, highlight_start, highlight_end, highlight_key)
             )
 
         elif fix_scope == "expression":
@@ -166,7 +168,7 @@ def _enrich_with_rule(raw: dict):
                         if fixed_expr != expr:
                             auto_fix_line = fixed_expr
 
-                    instances.append((warning_type, auto_fix_line, expr, start, end))
+                    instances.append((warning_type, auto_fix_line, expr, start, end, highlight_key))
 
             else:
                 auto_fix_line = None
@@ -175,12 +177,12 @@ def _enrich_with_rule(raw: dict):
                     if new_line != src:
                         auto_fix_line = new_line
 
-                instances.append((warning_type, auto_fix_line, src, 0, len(src)))
+                instances.append((warning_type, auto_fix_line, src, 0, len(src), highlight_key))
 
         break
 
     if not instances:
-        instances.append((default_warning_type, None, default_display_line, 0, len(default_display_line)))
+        instances.append((default_warning_type, None, default_display_line, 0, len(default_display_line, highlight_key)))
 
     return instances
 
@@ -250,7 +252,7 @@ def analyze_file_with_output(pygrate_root: Optional[str], project_root: str, fil
         rel_filename = os.path.relpath(abs_filename, abs_root)
         instances = _enrich_with_rule(raw)
 
-        for warning_type, auto_fix_line, display_line, col_start, col_end in instances:
+        for warning_type, auto_fix_line, display_line, col_start, col_end, highlight_key in instances:
             rec = WarningRecord(
                 filename=abs_filename,
                 rel_filename=rel_filename,
@@ -263,6 +265,7 @@ def analyze_file_with_output(pygrate_root: Optional[str], project_root: str, fil
                 auto_fix_line=auto_fix_line,
                 col_start=col_start,
                 col_end=col_end,
+                highlight=highlight_key
             )
             results.append(rec)
 

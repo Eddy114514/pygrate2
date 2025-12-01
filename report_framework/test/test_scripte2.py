@@ -1,3 +1,2 @@
 def hello():
-    print(("pl"))
-    print((("hello")))
+    print("hello from scripte2")

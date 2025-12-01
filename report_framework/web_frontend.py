@@ -98,6 +98,7 @@ def index():
             "fix": w.auto_fix_line,
             "colStart": w.col_start,
             "colEnd": w.col_end,
+            "highlight": w.highlight,
         }
         for w in warnings
     ]

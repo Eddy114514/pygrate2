@@ -140,6 +140,37 @@ main {
     border-radius: 3px;
 }
 
+.cm-warning-dict {
+    background-color: rgba(200, 245, 200, 0.9);
+    border-radius: 3px;
+}
+
+.cm-warning-buffer {
+    background-color: rgba(220, 200, 255, 0.9);
+    border-radius: 3px;
+}
+
+.cm-warning-fileio {
+    background-color: rgba(240, 220, 180, 0.9);
+    border-radius: 3px;
+}
+
+.cm-warning-bytesio {
+    background-color: rgba(200, 225, 255, 0.9);
+    border-radius: 3px;
+}
+
+.cm-warning-tokenize {
+    background-color: rgba(255, 230, 200, 0.9);
+    border-radius: 3px;
+}
+
+.cm-warning-base64 {
+    background-color: rgba(255, 210, 230, 0.9);
+    border-radius: 3px;
+}
+
+
 /* ===== Terminal output ===== */
 
 .terminal {
