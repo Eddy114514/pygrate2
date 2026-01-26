@@ -370,13 +370,14 @@ def test1():
 
 def _warn_encode(func, name):
     @wraps(func)
-    def encode_wrapper(*args, **kwargs):
-        warnpy3k(
-            "base64.{0} returns str in Python 2 (bytes in 3.x)".format(name),
-            UserWarning,
-            stacklevel= 2,
-            )
-        return func(*args, **kwargs)
+    def encode_wrapper(s, *args, **kwargs):
+        if isinstance(s, text_type):
+            warnpy3k(
+                "base64.{0} expects bytes in py3; got unicode.Encode explicitly (e.g. s.encode(...))".format(name),
+                UserWarning,
+                stacklevel= 2,
+                )
+        return func(s, *args, **kwargs)
     return encode_wrapper
 
 

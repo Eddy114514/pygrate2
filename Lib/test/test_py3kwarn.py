@@ -387,18 +387,18 @@ class TestPy3KWarnings(unittest.TestCase):
             excType, excValue, excTraceback = sys.exc_info()
             
     def test_b64encode_warns(self):
-        expected = "base64.b64encode returns str in Python 2 (bytes in 3.x)"
-        base64.b64encode(b'test')
+        expected = "base64.b64encode expects bytes in py3; got unicode.Encode explicitly (e.g. s.encode(...))"
+        base64.b64encode(u'test')
         check_py3k_warnings(expected, UserWarning)
         
     def test_b32encode_warns(self):
-        expected = "base64.b32encode returns str in Python 2 (bytes in 3.x)"
-        base64.b32encode(b'test')
+        expected = "base64.b32encode expects bytes in py3; got unicode.Encode explicitly (e.g. s.encode(...))"
+        base64.b32encode(u'test')
         check_py3k_warnings(expected, UserWarning)
     
     def test_b16encode_warns(self):
-        expected = "base64.b16encode returns str in Python 2 (bytes in 3.x)"
-        base64.b16encode(b'test')
+        expected = "base64.b16encode expects bytes in py3; got unicode.Encode explicitly (e.g. s.encode(...))"
+        base64.b16encode(u'test')
         check_py3k_warnings(expected, UserWarning)
         
 
