@@ -2417,10 +2417,6 @@ file_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 static int
 file_init(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    if (PyErr_WarnPy3k_WithFix("The builtin 'open()' function is not supported in 3.x, ",
-                       "use the 'io.open()' function instead with the encoding keyword argument", 1) < 0)
-        goto Error;
-
     PyFileObject *foself = (PyFileObject *)self;
     int ret = 0;
     static char *kwlist[] = {"name", "mode", "buffering", 0};
@@ -2446,6 +2442,19 @@ file_init(PyObject *self, PyObject *args, PyObject *kwds)
                                     kwlist, &po, &mode, &bufsize) &&
         wcslen(PyUnicode_AS_UNICODE(po)) == (size_t)PyUnicode_GET_SIZE(po)) {
         wideargument = 1;
+        {
+            char msg[256];
+            PyOS_snprintf(msg, sizeof(msg),
+                "The builtin 'file()'/'open()' function is not supported in 3.x, (observed mode=%s) ",
+                mode ? mode : "<null>");
+
+            if (PyErr_WarnPy3k_WithFix(
+                    msg,
+                    "use the 'io.open()' function instead with the encoding keyword argument",
+                    1) < 0)
+                goto Error;
+        }
+
         if (fill_file_fields(foself, NULL, po, mode,
                              fclose) == NULL)
             goto Error;
@@ -2470,6 +2479,19 @@ file_init(PyObject *self, PyObject *args, PyObject *kwds)
                                          kwlist, &o_name, &mode,
                                          &bufsize))
             goto Error;
+
+        {
+            char msg[256];
+            PyOS_snprintf(msg, sizeof(msg),
+                "The builtin 'file()'/'open()' function is not supported in 3.x, (observed mode=%s) ",
+                mode ? mode : "<null>");
+
+            if (PyErr_WarnPy3k_WithFix(
+                    msg,
+                    "use the 'io.open()' function instead with the encoding keyword argument",
+                    1) < 0)
+                goto Error;
+        }
 
         if (fill_file_fields(foself, NULL, o_name, mode,
                              fclose) == NULL)

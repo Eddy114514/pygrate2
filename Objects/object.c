@@ -3,6 +3,7 @@
 
 #include "Python.h"
 #include "frameobject.h"
+#include "opcode.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -847,6 +848,89 @@ do_cmp(PyObject *v, PyObject *w)
         return c;
     return default_3way_compare(v, w);
 }
+static const char *
+call_op_name(int opcode)
+{
+    switch (opcode) {
+    case CALL_FUNCTION:
+        return "CALL_FUNCTION";
+    case CALL_FUNCTION_VAR:
+        return "CALL_FUNCTION_VAR";
+    case CALL_FUNCTION_KW:
+        return "CALL_FUNCTION_KW";
+    case CALL_FUNCTION_VAR_KW:
+        return "CALL_FUNCTION_VAR_KW";
+    default:
+        return NULL;
+    }
+}
+
+static int
+warn_cmp_called_from_here(const char *base_msg)
+{
+    PyFrameObject *cur = PyEval_GetFrame();
+    /* Use caller frame when available; fall back to current frame for top-level calls. */
+    PyFrameObject *caller = (cur && cur->f_back) ? cur->f_back : cur;
+
+    const char *filename = "<unknown>";
+    const char *funcname = "<unknown>";
+    const char *opname = NULL;
+    int lineno = 0;
+    int lasti = -1;
+
+    if (caller && caller->f_code) {
+        PyCodeObject *code = caller->f_code;
+#if PY_MAJOR_VERSION >= 3
+        filename = PyUnicode_AsUTF8(code->co_filename);
+        funcname = PyUnicode_AsUTF8(code->co_name);
+#else
+        filename = PyString_AsString(code->co_filename);
+        funcname = PyString_AsString(code->co_name);
+#endif
+        lineno = PyFrame_GetLineNumber(caller);
+        lasti = caller->f_lasti;
+#if PY_MAJOR_VERSION >= 3
+        if (lasti >= 0 && PyBytes_Check(code->co_code)) {
+            Py_ssize_t n = PyBytes_GET_SIZE(code->co_code);
+            if ((Py_ssize_t)lasti < n) {
+                const unsigned char *bc =
+                    (const unsigned char *)PyBytes_AS_STRING(code->co_code);
+                opname = call_op_name((int)bc[lasti]);
+            }
+        }
+#else
+        if (lasti >= 0 && PyString_Check(code->co_code)) {
+            Py_ssize_t n = PyString_GET_SIZE(code->co_code);
+            if ((Py_ssize_t)lasti < n) {
+                const unsigned char *bc =
+                    (const unsigned char *)PyString_AS_STRING(code->co_code);
+                opname = call_op_name((int)bc[lasti]);
+            }
+        }
+#endif
+        if (!filename) filename = "<non-utf8 filename>";
+        if (!funcname) funcname = "<non-utf8 func>";
+    }
+
+    char buf[1024];
+    if (opname) {
+        PyOS_snprintf(buf, sizeof(buf),
+                      "%s (called from %s:%d in %s, bytecode=%s@%d)",
+                      base_msg, filename, lineno, funcname, opname, lasti);
+    }
+    else if (lasti >= 0) {
+        PyOS_snprintf(buf, sizeof(buf),
+                      "%s (called from %s:%d in %s, bytecode@%d)",
+                      base_msg, filename, lineno, funcname, lasti);
+    }
+    else {
+        PyOS_snprintf(buf, sizeof(buf),
+                      "%s (called from %s:%d in %s)",
+                      base_msg, filename, lineno, funcname);
+    }
+
+    return PyErr_WarnEx(PyExc_DeprecationWarning, buf, 1);
+}
 
 /* Compare v to w.  Return
    -1 if v <  w or exception (PyErr_Occurred() true in latter case).
@@ -861,11 +945,8 @@ PyObject_Compare(PyObject *v, PyObject *w)
     int result;
 
     if (Py_Py3kWarningFlag) {
-        if(PyErr_WarnEx_WithFix(PyExc_Py3xWarning, "the cmp method is not supported in 3.x",
-        "you can either provide your own alternative or use a third party library with a "
-         "backwards compatible fix", 1) < 0) {
+        if (warn_cmp_called_from_here("the cmp method is not supported in 3.x") < 0)
             return -1;
-        }
         return -1;
     }
 

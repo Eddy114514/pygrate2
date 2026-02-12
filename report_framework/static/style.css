@@ -170,6 +170,11 @@ main {
     border-radius: 3px;
 }
 
+.cm-warning-cmp {
+    background-color: rgba(210, 245, 255, 0.9);
+    border-radius: 3px;
+}
+
 
 /* ===== Terminal output ===== */
 

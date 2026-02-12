@@ -9,7 +9,7 @@ function typeToHighlightClass(highlight) {
     return "cm-warning-" + key;
 }
 
-function App() {
+    function App() {
     const editorHostRef = useRef(null);
     const cmRef = useRef(null);
 
@@ -200,9 +200,94 @@ function App() {
         );
     };
 
+    function findImportInsertIndex(lines) {
+        let idx = 0;
+        if (lines[idx] && lines[idx].startsWith("#!")) {
+            idx += 1;
+        }
+
+        if (lines[idx] && /coding[:=]\s*[-\w.]+/i.test(lines[idx])) {
+            idx += 1;
+        }
+
+        while (idx < lines.length && lines[idx].trim() === "") {
+            idx += 1;
+        }
+
+        // Skip module docstring
+        if (idx < lines.length) {
+            const line = lines[idx].trim();
+            if (line.startsWith('"""') || line.startsWith("'''")) {
+                const quote = line.startsWith('"""') ? '"""' : "'''";
+                if (line.split(quote).length - 1 >= 2) {
+                    idx += 1;
+                } else {
+                    idx += 1;
+                    while (idx < lines.length) {
+                        if (lines[idx].includes(quote)) {
+                            idx += 1;
+                            break;
+                        }
+                        idx += 1;
+                    }
+                }
+            }
+        }
+
+        while (idx < lines.length && lines[idx].trim() === "") {
+            idx += 1;
+        }
+
+        return idx;
+    }
+
+    function ensureImports(text, importsToAdd) {
+        if (!importsToAdd || importsToAdd.length === 0) return text;
+
+        const lines = text.split("\n");
+        const existing = new Set(
+            lines
+                .map((l) => l.trim())
+                .filter((s) => s.startsWith("import ") || s.startsWith("from "))
+        );
+
+        const missingLines = [];
+        const added = new Set();
+
+        importsToAdd.forEach((imp) => {
+            if (typeof imp !== "string") return;
+            const trimmed = imp.trim();
+            if (!trimmed) return;
+            if (existing.has(trimmed) || added.has(trimmed)) return;
+            missingLines.push(trimmed);
+            added.add(trimmed);
+        });
+
+        if (!missingLines.length) return text;
+
+        const insertAt = findImportInsertIndex(lines);
+        const needBlank = insertAt < lines.length && lines[insertAt].trim() !== "";
+        const toInsert = needBlank ? missingLines.concat([""]) : missingLines;
+        lines.splice(insertAt, 0, ...toInsert);
+
+        return lines.join("\n");
+    }
+
+    function collectImportsForWarnings(warningsList) {
+        const set = new Set();
+        warningsList.forEach((w) => {
+            const arr = w.importsNeeded || w.imports || [];
+            arr.forEach((imp) => {
+                if (typeof imp === "string" && imp.trim()) set.add(imp.trim());
+            });
+        });
+        return Array.from(set);
+    }
+
     function applyFixesToText(text, warningsList) {
         let lines = text.split("\n");
         const byLine = {};
+        const appliedWarnings = [];
 
         warningsList.forEach((w) => {
             const idx = w.line - 1;
@@ -253,12 +338,21 @@ function App() {
                     lineStr.slice(0, start) +
                     w.fix +
                     lineStr.slice(end);
+                if (lineStr !== lines[idx]) {
+                    appliedWarnings.push(w);
+                }
             });
 
             lines[idx] = lineStr;
         });
 
-        return lines.join("\n");
+        if (!appliedWarnings.length) {
+            return text;
+        }
+
+        const newText = lines.join("\n");
+        const importsToAdd = collectImportsForWarnings(appliedWarnings);
+        return ensureImports(newText, importsToAdd);
     }
 
     const applyFixes = (targetWarning = null) => {

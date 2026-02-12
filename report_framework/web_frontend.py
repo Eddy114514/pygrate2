@@ -1,7 +1,8 @@
 # report_framework/web_frontend.py
 
 import os
-from typing import Dict, List
+from typing import Dict, List, Set
+import ast
 
 import atexit
 import shutil
@@ -36,6 +37,59 @@ def _load_source_lines(abs_root: str, rel_path: str) -> List[str]:
             return f.readlines()
     except Exception:
         return []
+
+
+def _canonicalize_imports_from_ast(src: str) -> Set[str]:
+    """
+    Return a set of canonical import strings found in the source using AST parsing.
+    """
+    try:
+        tree = ast.parse(src)
+    except Exception:
+        return set()
+
+    results: Set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                name = alias.name
+                alias_part = f" as {alias.asname}" if alias.asname else ""
+                results.add(f"import {name}{alias_part}")
+        elif isinstance(node, ast.ImportFrom):
+            module = "." * (node.level or 0) + (node.module or "")
+            for alias in node.names:
+                name = alias.name
+                alias_part = f" as {alias.asname}" if alias.asname else ""
+                results.add(f"from {module} import {name}{alias_part}")
+    return results
+
+
+def _normalize_required_imports(import_lines: List[str]) -> List[str]:
+    """
+    Normalize required import strings into canonical single-import lines.
+    Lines that cannot be parsed as imports are skipped.
+    """
+    canonicals: List[str] = []
+    for line in import_lines:
+        if not line or not isinstance(line, str):
+            continue
+        try:
+            tree = ast.parse(line)
+        except Exception:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    name = alias.name
+                    alias_part = f" as {alias.asname}" if alias.asname else ""
+                    canonicals.append(f"import {name}{alias_part}")
+            elif isinstance(node, ast.ImportFrom):
+                module = "." * (node.level or 0) + (node.module or "")
+                for alias in node.names:
+                    name = alias.name
+                    alias_part = f" as {alias.asname}" if alias.asname else ""
+                    canonicals.append(f"from {module} import {name}{alias_part}")
+    return canonicals
 
 
 @app.route("/", methods=["GET"])
@@ -96,12 +150,26 @@ def index():
             "message": w.message,
             "original": w.line,
             "fix": w.auto_fix_line,
+            "imports": getattr(w, "required_imports", []),
+            "importsNeeded": [],
             "colStart": w.col_start,
             "colEnd": w.col_end,
             "highlight": w.highlight,
         }
         for w in warnings
     ]
+
+    # Compute missing imports per file, based on existing imports in that file.
+    existing_imports_map: Dict[str, Set[str]] = {}
+    for rel_path, text in files_map.items():
+        existing_imports_map[rel_path] = _canonicalize_imports_from_ast(text)
+
+    for item in warnings_for_js:
+        rel = item["file"]
+        existing = existing_imports_map.get(rel, set())
+        required = _normalize_required_imports(item.get("imports") or [])
+        missing = [imp for imp in required if imp not in existing]
+        item["importsNeeded"] = missing
     return render_template(
         "report.html",
         engine_root=engine_root,
