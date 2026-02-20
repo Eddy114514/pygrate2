@@ -179,6 +179,9 @@ static int symtable_visit_alias(struct symtable *st, alias_ty);
 static int symtable_visit_comprehension(struct symtable *st, comprehension_ty);
 static int symtable_visit_keyword(struct symtable *st, keyword_ty);
 static int symtable_visit_slice(struct symtable *st, slice_ty);
+static int symtable_warn_listcomp_target(struct symtable *st, expr_ty target,
+                                         int lineno);
+static int symtable_warn_listcomp_shadowing(struct symtable *st, expr_ty e);
 static int symtable_visit_params(struct symtable *st, asdl_seq *args, int top);
 static int symtable_visit_params_nested(struct symtable *st, asdl_seq *args);
 static int symtable_implicit_arg(struct symtable *st, int pos);
@@ -1484,6 +1487,61 @@ symtable_visit_slice(struct symtable *st, slice_ty s)
 }
 
 static int
+symtable_warn_listcomp_target(struct symtable *st, expr_ty target, int lineno)
+{
+    switch (target->kind) {
+    case Name_kind: {
+        long flags = symtable_lookup(st, target->v.Name.id);
+        if (flags & (DEF_BOUND | DEF_GLOBAL)) {
+            char buf[256];
+            PyOS_snprintf(buf, sizeof(buf),
+                          "list comprehension rebinds name '%.100s'; "
+                          "in 3.x the name is not rebound",
+                          PyString_AS_STRING(target->v.Name.id));
+            if (!symtable_warn(st, PyExc_Py3xWarning, buf, lineno))
+                return 0;
+        }
+        break;
+    }
+    case Tuple_kind: {
+        int i;
+        for (i = 0; i < asdl_seq_LEN(target->v.Tuple.elts); i++) {
+            expr_ty elt = (expr_ty)asdl_seq_GET(target->v.Tuple.elts, i);
+            if (!symtable_warn_listcomp_target(st, elt, lineno))
+                return 0;
+        }
+        break;
+    }
+    case List_kind: {
+        int i;
+        for (i = 0; i < asdl_seq_LEN(target->v.List.elts); i++) {
+            expr_ty elt = (expr_ty)asdl_seq_GET(target->v.List.elts, i);
+            if (!symtable_warn_listcomp_target(st, elt, lineno))
+                return 0;
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return 1;
+}
+
+static int
+symtable_warn_listcomp_shadowing(struct symtable *st, expr_ty e)
+{
+    int i;
+    asdl_seq *generators = e->v.ListComp.generators;
+
+    for (i = 0; i < asdl_seq_LEN(generators); i++) {
+        comprehension_ty lc = (comprehension_ty)asdl_seq_GET(generators, i);
+        if (!symtable_warn_listcomp_target(st, lc->target, e->lineno))
+            return 0;
+    }
+    return 1;
+}
+
+static int
 symtable_new_tmpname(struct symtable *st)
 {
     char tmpname[256];
@@ -1556,6 +1614,10 @@ symtable_visit_listcomp(struct symtable *st, expr_ty e)
 {
     asdl_seq *generators = e->v.ListComp.generators;
     int i, is_generator;
+
+    if (Py_Py3kWarningFlag && !symtable_warn_listcomp_shadowing(st, e))
+        return 0;
+
     /* In order to check for yield expressions under '-3', we clear
        the generator flag, and restore it at the end */
     is_generator = st->st_cur->ste_generator;
