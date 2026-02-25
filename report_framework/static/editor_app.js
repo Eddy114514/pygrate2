@@ -152,8 +152,11 @@ function typeToHighlightClass(highlight) {
         },
         {
             title: "Suggested fix",
-            render: (_, w) =>
-                w.fix ? <Text code>{w.fix}</Text> : <span className="no-fix">(no auto-fix)</span>,
+            render: (_, w) => {
+                if (w.fix) return <Text code>{w.fix}</Text>;
+                if (w.fixText) return <span>{w.fixText}</span>;
+                return <span className="no-fix">(no auto-fix)</span>;
+            },
         },
     ];
 
@@ -192,6 +195,8 @@ function typeToHighlightClass(highlight) {
                     <strong>Suggested fix: </strong>
                     {w.fix ? (
                         <Text code>{w.fix}</Text>
+                    ) : w.fixText ? (
+                        <span>{w.fixText}</span>
                     ) : (
                         <span className="no-fix">(no auto-fix)</span>
                     )}

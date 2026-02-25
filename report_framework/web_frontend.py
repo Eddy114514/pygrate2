@@ -150,6 +150,7 @@ def index():
             "message": w.message,
             "original": w.line,
             "fix": w.auto_fix_line,
+            "fixText": w.fix_text,
             "imports": getattr(w, "required_imports", []),
             "importsNeeded": [],
             "colStart": w.col_start,

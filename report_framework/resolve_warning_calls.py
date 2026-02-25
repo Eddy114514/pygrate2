@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Resolve cmp warnings with bytecode offsets to source callees.
+Resolve runtime warning callsites with bytecode offsets to source callees.
 
-Implementation strategy (library-first):
+Implementation strategy (library-first, internal API):
 - Use Python2's stdlib `dis` (via subprocess) to get CALL_* offsets on a line.
 - Use `parso` (Python 2.7 grammar) to extract callee expressions in eval order.
 """
 
-import argparse
 import json
 import os
 import re
 import subprocess
 import sys
+from functools import lru_cache
 
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,10 +30,10 @@ except Exception as e:
     )
 
 
-HEADER_RE = re.compile(
+WARNING_HEADER_RE = re.compile(
     r"^(?P<filename>.+?):(?P<lineno>\d+):\s+(?P<category>[^:]+):\s+(?P<message>.*)$"
 )
-CALLSITE_BASE_RE = re.compile(
+CALLSITE_FROM_MESSAGE_RE = re.compile(
     r"called from\s+.+?:(?P<call_lineno>\d+)\s+in\s+(?P<func>[^,\)]+)"
 )
 BYTECODE_RE = re.compile(
@@ -124,18 +124,18 @@ def _value(node):
 
 def _eval_node(node, calls):
     if node is None:
-        return "<expr>"
+        return "<expr>", None, None
 
     ntype = getattr(node, "type", None)
     kids = _children(node)
 
     if _is_leaf(node):
         if ntype == "name":
-            return _value(node)
-        return "<expr>"
+            return _value(node), node.start_pos[1], node.end_pos[1]
+        return "<expr>", node.start_pos[1], node.end_pos[1]
 
     if ntype == "power" and kids:
-        base = _eval_node(kids[0], calls)
+        base, base_start, base_end = _eval_node(kids[0], calls)
         for trailer in kids[1:]:
             if getattr(trailer, "type", None) != "trailer":
                 _eval_node(trailer, calls)
@@ -147,16 +147,29 @@ def _eval_node(node, calls):
             if first == ".":
                 attr = _value(t_children[1]) if len(t_children) > 1 else "<?>"
                 base = "%s.%s" % (base, attr)
+                base_end = t_children[1].end_pos[1] if len(t_children) > 1 else trailer.end_pos[1]
             elif first == "[":
                 if len(t_children) > 2:
                     _eval_node(t_children[1], calls)
                 base = "%s[...]" % (base,)
+                base_end = trailer.end_pos[1]
             elif first == "(":
                 if len(t_children) > 2:
                     _eval_node(t_children[1], calls)  # arglist
-                calls.append(base)
+                call_start = base_start if base_start is not None else trailer.start_pos[1]
+                call_end = trailer.end_pos[1]
+                calls.append(
+                    {
+                        "callee": base,
+                        "text": ("%s%s" % (base, trailer.get_code())).strip(),
+                        "col_start": call_start,
+                        "col_end": call_end,
+                    }
+                )
                 base = "<ret>"
-        return base
+                base_start = call_start
+                base_end = call_end
+        return base, base_start, base_end
 
     if ntype == "expr_stmt":
         # Assignment bytecode evaluates RHS before STORE_*.
@@ -167,27 +180,32 @@ def _eval_node(node, calls):
         else:
             for ch in kids:
                 _eval_node(ch, calls)
-        return "<expr>"
+        return "<expr>", node.start_pos[1], node.end_pos[1]
 
     for ch in kids:
         _eval_node(ch, calls)
-    return "<expr>"
+    return "<expr>", node.start_pos[1], node.end_pos[1]
 
 
-def line_callees_with_parso(line_text):
-    module = GRAMMAR27.parse((line_text or "") + "\n")
+def line_calls_with_parso(line_text):
+    return [dict(c) for c in _line_calls_with_parso_cached(line_text or "")]
+
+
+@lru_cache(maxsize=2048)
+def _line_calls_with_parso_cached(line_text):
+    module = GRAMMAR27.parse(line_text + "\n")
     calls = []
     for ch in _children(module):
         _eval_node(ch, calls)
-    return calls
+    return tuple(calls)
 
 
-def parse_warning_header(line):
-    m = HEADER_RE.match(line.strip())
+def parse_warning_callsite(line):
+    m = WARNING_HEADER_RE.match(line.strip())
     if not m:
         return None
     message = m.group("message")
-    callsite = CALLSITE_BASE_RE.search(message)
+    callsite = CALLSITE_FROM_MESSAGE_RE.search(message)
     if not callsite:
         return None
     bc = BYTECODE_RE.search(message)
@@ -199,10 +217,11 @@ def parse_warning_header(line):
         "func": callsite.group("func"),
         "offset": int(bc.group("offset")),
         "opname": bc.group("opname"),
-        "raw": line.rstrip("\n"),
+        "header": line.rstrip("\n"),
     }
 
 
+@lru_cache(maxsize=256)
 def _read_source(path):
     with open(path, "rb") as f:
         b = f.read()
@@ -226,19 +245,25 @@ def _pick_py2(py2_bin):
 
 def call_offsets_with_py2(source_path, func_name, lineno, py2_bin):
     interp = _pick_py2(py2_bin)
+    return list(_call_offsets_with_py2_cached(source_path, func_name, lineno, interp))
+
+
+@lru_cache(maxsize=2048)
+def _call_offsets_with_py2_cached(source_path, func_name, lineno, interp):
     cmd = [interp, "-c", PY2_OFFSET_SCRIPT, source_path, func_name, str(lineno)]
     out = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
     if isinstance(out, bytes):
         out = out.decode("utf-8", "replace")
     out = out.strip() or "[]"
-    return json.loads(out)
+    return tuple(json.loads(out))
 
 
-def resolve_one(source_path, func_name, call_lineno, offset, py2_bin=None):
+def resolve_callsite(source_path, func_name, call_lineno, offset, py2_bin=None):
     src = _read_source(source_path)
     lines = src.splitlines()
     line_text = lines[call_lineno - 1] if 1 <= call_lineno <= len(lines) else ""
-    line_callees = line_callees_with_parso(line_text)
+    line_calls = line_calls_with_parso(line_text)
+    line_callees = [c.get("callee") for c in line_calls]
 
     offsets = call_offsets_with_py2(source_path, func_name, call_lineno, py2_bin)
     if offset not in offsets:
@@ -250,97 +275,52 @@ def resolve_one(source_path, func_name, call_lineno, offset, py2_bin=None):
             "callee": None,
             "known_offsets": offsets,
             "known_callees": line_callees,
+            "known_calls": line_calls,
         }
 
     idx = offsets.index(offset)
     callee = line_callees[idx] if idx < len(line_callees) else None
+    resolved_call = line_calls[idx] if idx < len(line_calls) else None
     return {
         "source": source_path,
         "func": func_name,
         "lineno": call_lineno,
         "offset": offset,
         "callee": callee,
+        "resolved_call": resolved_call,
         "known_offsets": offsets,
         "known_callees": line_callees,
+        "known_calls": line_calls,
         "call_index": idx,
     }
 
 
-def _warnings_from_args(args):
-    rows = [w.rstrip("\n") for w in args.warning]
-    if args.warnings_file:
-        with open(args.warnings_file, "r") as f:
-            rows.extend([ln.rstrip("\n") for ln in f if ln.strip()])
-    if args.stdin:
-        rows.extend([ln.rstrip("\n") for ln in sys.stdin if ln.strip()])
-    return rows
+def resolve_warning_callsite(warning_header, py2_bin=None, source_path=None):
+    """
+    Resolve a single warning header line to one concrete source callsite.
 
+    Returns None if header has no bytecode callsite info or source is missing.
+    """
+    parsed = parse_warning_callsite(warning_header)
+    if not parsed:
+        return None
+    src = source_path or parsed["filename"]
+    if src.startswith("./"):
+        src = src[2:]
+    if not os.path.exists(src):
+        return None
 
-def main(argv=None):
-    p = argparse.ArgumentParser(
-        description="Resolve cmp warning bytecode offsets to concrete call targets."
+    out = resolve_callsite(
+        src,
+        parsed["func"],
+        parsed["lineno"],
+        parsed["offset"],
+        py2_bin=py2_bin,
     )
-    p.add_argument("--warning", action="append", default=[],
-                   help="One full warning header line.")
-    p.add_argument("--warnings-file", help="File containing warning headers.")
-    p.add_argument("--stdin", action="store_true", help="Read warning lines from stdin.")
-    p.add_argument("--source", help="Source file (manual mode).")
-    p.add_argument("--func", help="Function name, e.g. <module> (manual mode).")
-    p.add_argument("--line", type=int, help="Line number in that function (manual mode).")
-    p.add_argument("--offset", type=int, help="Bytecode offset (manual mode).")
-    p.add_argument("--py2-bin", help="Python2 interpreter path used for bytecode offsets.")
-    args = p.parse_args(argv)
-
-    manual = args.source and args.func and args.line is not None and args.offset is not None
-    warning_lines = _warnings_from_args(args)
-    if not warning_lines and not manual:
-        p.error("provide --warning/--warnings-file/--stdin, or manual mode args.")
-
-    code = 0
-
-    if manual:
-        try:
-            out = resolve_one(args.source, args.func, args.line, args.offset, args.py2_bin)
-            if out["callee"] is None:
-                print("%s:%d in %s bytecode@%d -> <unresolved>; offsets=%s callees=%s" % (
-                    out["source"], out["lineno"], out["func"], out["offset"],
-                    out["known_offsets"], out["known_callees"]
-                ))
-                code = 2
-            else:
-                print("%s:%d in %s CALL@%d -> %s" % (
-                    out["source"], out["lineno"], out["func"], out["offset"], out["callee"]
-                ))
-        except Exception as e:
-            print("error: %s" % (e,), file=sys.stderr)
-            code = 2
-
-    for line in warning_lines:
-        parsed = parse_warning_header(line)
-        if parsed is None:
-            print("skip (unrecognized warning format): %s" % line)
-            continue
-        src = parsed["filename"]
-        if src.startswith("./"):
-            src = src[2:]
-        if not os.path.exists(src):
-            print("skip (source not found): %s" % parsed["filename"])
-            continue
-        try:
-            out = resolve_one(src, parsed["func"], parsed["lineno"], parsed["offset"], args.py2_bin)
-            if out["callee"] is None:
-                print("%s -> unresolved at @%d; offsets=%s callees=%s" % (
-                    parsed["raw"], parsed["offset"], out["known_offsets"], out["known_callees"]
-                ))
-                code = max(code, 2)
-            else:
-                print("%s -> callee=%s" % (parsed["raw"], out["callee"]))
-        except Exception as e:
-            print("%s -> error: %s" % (parsed["raw"], e))
-            code = max(code, 2)
-
-    return code
+    out["warning"] = parsed
+    return out
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+# Backward compatibility names kept for framework code that still imports old APIs.
+parse_warning_header = parse_warning_callsite
+resolve_one = resolve_callsite
