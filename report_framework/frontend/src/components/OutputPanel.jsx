@@ -1,6 +1,13 @@
 import { Alert, Empty, Typography } from "antd";
 
-export default function OutputPanel({ loading, error, runOutput }) {
+export default function OutputPanel({
+  loading,
+  error,
+  runOutput,
+  lastAnalyzedAt,
+  warningCount,
+  currentFile,
+}) {
   if (loading) {
     return <Alert type="info" showIcon message="Analyzing…" />;
   }
@@ -8,7 +15,17 @@ export default function OutputPanel({ loading, error, runOutput }) {
     return <Alert type="error" showIcon message={error} />;
   }
   if (!runOutput) {
-    return <Empty description="No runtime output available" />;
+    if (lastAnalyzedAt && currentFile) {
+      return (
+        <Alert
+          type="success"
+          showIcon
+          message="Analysis completed"
+          description={`Analyzed ${currentFile}. The program produced no stdout. Current warning count: ${warningCount ?? 0}.`}
+        />
+      );
+    }
+    return <Empty description="No runtime output available yet" />;
   }
   return (
     <div className="terminal terminal--output">

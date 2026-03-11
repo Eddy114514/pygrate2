@@ -91,6 +91,7 @@ export default function WorkspacePage({ initialData }) {
       setDiffState((prev) => ({
         ...prev,
         previewDiffText: "",
+        activeTab: "output",
       }));
     },
     onDiffLoaded: (diff) => {
@@ -106,7 +107,11 @@ export default function WorkspacePage({ initialData }) {
   const selectFile = async (filePath) => {
     try {
       await analyzeCurrentFile(filePath);
-      setDiffState((prev) => ({ ...prev, previewDiffText: "" }));
+      setDiffState((prev) => ({
+        ...prev,
+        previewDiffText: "",
+        activeTab: "output",
+      }));
     } catch (error) {
       message.error(error.message);
     }
@@ -115,6 +120,7 @@ export default function WorkspacePage({ initialData }) {
   const runAnalyze = async () => {
     try {
       await analyzeCurrentFile(projectState.currentFile);
+      setDiffState((prev) => ({ ...prev, activeTab: "output" }));
       message.success("Analysis completed.");
     } catch (error) {
       message.error(error.message);
@@ -139,6 +145,9 @@ export default function WorkspacePage({ initialData }) {
           loading={analysisState.loading}
           error={analysisState.error}
           runOutput={analysisState.runOutput}
+          lastAnalyzedAt={analysisState.lastAnalyzedAt}
+          warningCount={warningState.warnings.length}
+          currentFile={projectState.currentFile}
         />
       ),
     },

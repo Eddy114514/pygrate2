@@ -398,7 +398,11 @@ def _enrich_with_rule(raw: dict):
 
 
 
-def _run_pygrate(file_path: str, pygrate_root: Optional[str] = None):
+def _run_pygrate(
+    file_path: str,
+    project_root: str,
+    pygrate_root: Optional[str] = None,
+):
     """
     Execute pygrate2's ./python -3 <file_path> and return (stdout, stderr).
     """
@@ -407,15 +411,51 @@ def _run_pygrate(file_path: str, pygrate_root: Optional[str] = None):
         pygrate_root = os.path.abspath(os.path.join(here, ".."))  # pygrate2/
 
     python_exec = os.path.join(pygrate_root, "python")
+    abs_root = os.path.abspath(project_root)
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        abs_root + os.pathsep + existing_pythonpath
+        if existing_pythonpath
+        else abs_root
+    )
 
     proc = subprocess.Popen(
         [python_exec, "-3", "-B", file_path],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        cwd=abs_root,
+        env=env,
     )
     stdout, stderr = proc.communicate()
     return stdout, stderr
+
+
+def _extract_runtime_output(stdout: str, stderr: str) -> str:
+    kept_lines: List[str] = []
+    lines = stderr.splitlines()
+    idx = 0
+
+    while idx < len(lines):
+        line = lines[idx]
+        if HEADER_RE.match(line):
+            idx += 1
+            if idx < len(lines):
+                next_line = lines[idx]
+                if next_line.startswith("  ") and not next_line.startswith("  File "):
+                    idx += 1
+            continue
+        kept_lines.append(line)
+        idx += 1
+
+    runtime_parts = []
+    if stdout:
+        runtime_parts.append(stdout.rstrip("\n"))
+    stderr_runtime = "\n".join(kept_lines).strip()
+    if stderr_runtime:
+        runtime_parts.append(stderr_runtime)
+    return "\n".join(part for part in runtime_parts if part)
 
 
 
@@ -433,7 +473,7 @@ def analyze_file_with_output(pygrate_root: Optional[str], project_root: str, fil
     else:
         abs_file = os.path.abspath(file_path)
 
-    stdout, stderr = _run_pygrate(abs_file, pygrate_root)
+    stdout, stderr = _run_pygrate(abs_file, abs_root, pygrate_root)
 
     blocks = _extract_warning_blocks(stderr)
     results: List[WarningRecord] = []
@@ -499,7 +539,7 @@ def analyze_file_with_output(pygrate_root: Optional[str], project_root: str, fil
             )
             results.append(rec)
 
-    return results, stdout
+    return results, _extract_runtime_output(stdout, stderr)
 
 
 def analyze_file(pygrate_root: Optional[str], project_root: str, file_path: str) -> List[WarningRecord]:

@@ -11,6 +11,9 @@ function resolveWarningRange(doc, warning) {
   if (!warning || typeof warning.line !== "number" || warning.line < 1) {
     return null;
   }
+  if (warning.line > doc.lines) {
+    return null;
+  }
   const line = doc.line(warning.line);
   const startColumn =
     typeof warning.colStart === "number" ? warning.colStart : 0;
@@ -27,6 +30,9 @@ function resolveWarningRange(doc, warning) {
 
 function buildDecorations(doc, warnings, selectedWarningId) {
   const builder = new RangeSetBuilder();
+  const entries = [];
+  const lineSelection = new Map();
+
   for (const warning of warnings) {
     const range = resolveWarningRange(doc, warning);
     if (!range) {
@@ -38,22 +44,50 @@ function buildDecorations(doc, warnings, selectedWarningId) {
     ];
     if (warning.warningId === selectedWarningId) {
       classes.push("rf-warning-mark--selected");
+      lineSelection.set(range.line.number, true);
+    } else if (!lineSelection.has(range.line.number)) {
+      lineSelection.set(range.line.number, false);
     }
-    builder.add(
-      range.from,
-      Math.max(range.from + 1, range.to),
-      Decoration.mark({ class: classes.join(" ") })
-    );
-    builder.add(
-      range.line.from,
-      range.line.from,
-      Decoration.line({
-        class:
-          warning.warningId === selectedWarningId
-            ? "rf-warning-line rf-warning-line--selected"
-            : "rf-warning-line",
-      })
-    );
+    entries.push({
+      from: range.from,
+      to: Math.max(range.from + 1, range.to),
+      value: Decoration.mark({ class: classes.join(" ") }),
+      kind: "mark",
+    });
+  }
+
+  for (const [lineNumber, isSelected] of lineSelection.entries()) {
+    if (lineNumber < 1 || lineNumber > doc.lines) {
+      continue;
+    }
+    const line = doc.line(lineNumber);
+    entries.push({
+      from: line.from,
+      to: line.from,
+      value: Decoration.line({
+        class: isSelected
+          ? "rf-warning-line rf-warning-line--selected"
+          : "rf-warning-line",
+      }),
+      kind: "line",
+    });
+  }
+
+  entries.sort((a, b) => {
+    if (a.from !== b.from) {
+      return a.from - b.from;
+    }
+    if (a.to !== b.to) {
+      return a.to - b.to;
+    }
+    if (a.kind !== b.kind) {
+      return a.kind === "line" ? -1 : 1;
+    }
+    return 0;
+  });
+
+  for (const entry of entries) {
+    builder.add(entry.from, entry.to, entry.value);
   }
   return builder.finish();
 }

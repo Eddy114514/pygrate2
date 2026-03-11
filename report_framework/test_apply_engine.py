@@ -386,6 +386,41 @@ class ApplyEngineTests(unittest.TestCase):
             with open(prev_path, "r", encoding="utf-8") as f:
                 self.assertEqual(f.read(), "print('v2')\n")
 
+    def test_analyze_file_with_output_runs_nested_file_with_project_imports(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.makedirs(os.path.join(tmpdir, "pkg"), exist_ok=True)
+            with open(os.path.join(tmpdir, "helper.py"), "w", encoding="utf-8") as f:
+                f.write('def hello():\n    print("hello helper")\n')
+            with open(os.path.join(tmpdir, "pkg", "sample.py"), "w", encoding="utf-8") as f:
+                f.write(
+                    "import helper\n"
+                    "helper.hello()\n"
+                    'print("hello sample")\n'
+                )
+
+            warnings, run_output = analyze_file_with_output(REPO_ROOT, tmpdir, "pkg/sample.py")
+
+            self.assertEqual(warnings, [])
+            self.assertIn("hello helper", run_output)
+            self.assertIn("hello sample", run_output)
+
+    def test_analyze_file_with_output_surfaces_runtime_errors(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, "sample.py"), "w", encoding="utf-8") as f:
+                f.write(
+                    "d = {'a': 1}\n"
+                    "d.has_key('a')\n"
+                    "raise RuntimeError('boom')\n"
+                )
+
+            warnings, run_output = analyze_file_with_output(REPO_ROOT, tmpdir, "sample.py")
+
+            self.assertEqual(len(warnings), 1)
+            self.assertEqual(warnings[0].warning_type, "HAS_KEY_WARNING")
+            self.assertIn("RuntimeError", run_output)
+            self.assertIn("boom", run_output)
+            self.assertNotIn("dict.has_key() not supported", run_output)
+
     def test_build_tree_for_ui_excludes_internal_history_dirs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             os.makedirs(os.path.join(tmpdir, ".pygrate_history"), exist_ok=True)

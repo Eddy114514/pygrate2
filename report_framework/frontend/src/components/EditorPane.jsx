@@ -30,6 +30,9 @@ export default function EditorPane({
     if (!warning || !view || typeof warning.line !== "number") {
       return;
     }
+    if (warning.line < 1 || warning.line > view.state.doc.lines) {
+      return;
+    }
     const docLine = view.state.doc.line(warning.line);
     view.dispatch({
       selection: { anchor: docLine.from },
@@ -69,6 +72,7 @@ export default function EditorPane({
         onChange={onSelectTab}
       />
       <CodeMirror
+        key={currentFile}
         value={sourceText}
         height="100%"
         extensions={[
