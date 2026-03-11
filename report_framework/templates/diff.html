@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <title>Pygrate Diff View</title>
+    <!-- Legacy fallback page: primary diff workflow now lives in the workspace bottom panel. -->
 
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
@@ -11,7 +12,7 @@
 </head>
 <body>
 <header>
-    <form method="GET" action="/">
+    <form method="GET" action="{{ url_for('pages.index') }}">
         <label>
             Project root:
             <input type="text" name="root" value="{{ project_root }}">
@@ -24,10 +25,10 @@
     </form>
 
     <nav class="top-nav">
-        <a href="{{ url_for('index', root=project_root, file=file_path) }}" class="nav-link">
+        <a href="{{ url_for('pages.index', root=project_root, file=file_path) }}" class="nav-link">
             Editor
         </a>
-        <a href="{{ url_for('diff_view', root=project_root, file=file_path) }}" class="nav-link nav-link-active">
+        <a href="{{ url_for('pages.diff_view', root=project_root, file=file_path) }}" class="nav-link nav-link-active">
             Diff
         </a>
     </nav>

@@ -1,3 +1,6 @@
+// Legacy fallback implementation kept only for migration reference.
+// The supported UI path now uses report_framework/frontend + Vite bundle.
+
 const { useState, useEffect } = React;
 const { Card, Layout, Input } = antd;
 const { Content } = Layout;

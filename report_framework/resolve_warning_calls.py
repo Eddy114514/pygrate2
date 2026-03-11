@@ -34,7 +34,7 @@ WARNING_HEADER_RE = re.compile(
     r"^(?P<filename>.+?):(?P<lineno>\d+):\s+(?P<category>[^:]+):\s+(?P<message>.*)$"
 )
 CALLSITE_FROM_MESSAGE_RE = re.compile(
-    r"called from\s+.+?:(?P<call_lineno>\d+)\s+in\s+(?P<func>[^,\)]+)"
+    r"called from\s+(?P<call_filename>.+?):(?P<call_lineno>\d+)\s+in\s+(?P<func>[^,\)]+)"
 )
 BYTECODE_RE = re.compile(
     r"bytecode(?:=(?P<opname>[A-Z_]+))?@(?P<offset>\d+)"
@@ -131,8 +131,8 @@ def _eval_node(node, calls):
 
     if _is_leaf(node):
         if ntype == "name":
-            return _value(node), node.start_pos[1], node.end_pos[1]
-        return "<expr>", node.start_pos[1], node.end_pos[1]
+            return _value(node), node.start_pos, node.end_pos
+        return "<expr>", node.start_pos, node.end_pos
 
     if ntype == "power" and kids:
         base, base_start, base_end = _eval_node(kids[0], calls)
@@ -147,23 +147,25 @@ def _eval_node(node, calls):
             if first == ".":
                 attr = _value(t_children[1]) if len(t_children) > 1 else "<?>"
                 base = "%s.%s" % (base, attr)
-                base_end = t_children[1].end_pos[1] if len(t_children) > 1 else trailer.end_pos[1]
+                base_end = t_children[1].end_pos if len(t_children) > 1 else trailer.end_pos
             elif first == "[":
                 if len(t_children) > 2:
                     _eval_node(t_children[1], calls)
                 base = "%s[...]" % (base,)
-                base_end = trailer.end_pos[1]
+                base_end = trailer.end_pos
             elif first == "(":
                 if len(t_children) > 2:
                     _eval_node(t_children[1], calls)  # arglist
-                call_start = base_start if base_start is not None else trailer.start_pos[1]
-                call_end = trailer.end_pos[1]
+                call_start = base_start if base_start is not None else trailer.start_pos
+                call_end = trailer.end_pos
                 calls.append(
                     {
                         "callee": base,
                         "text": ("%s%s" % (base, trailer.get_code())).strip(),
-                        "col_start": call_start,
-                        "col_end": call_end,
+                        "line_start": call_start[0] if call_start else None,
+                        "line_end": call_end[0] if call_end else None,
+                        "col_start": call_start[1] if call_start else None,
+                        "col_end": call_end[1] if call_end else None,
                     }
                 )
                 base = "<ret>"
@@ -180,11 +182,11 @@ def _eval_node(node, calls):
         else:
             for ch in kids:
                 _eval_node(ch, calls)
-        return "<expr>", node.start_pos[1], node.end_pos[1]
+        return "<expr>", node.start_pos, node.end_pos
 
     for ch in kids:
         _eval_node(ch, calls)
-    return "<expr>", node.start_pos[1], node.end_pos[1]
+    return "<expr>", node.start_pos, node.end_pos
 
 
 def line_calls_with_parso(line_text):
@@ -198,6 +200,30 @@ def _line_calls_with_parso_cached(line_text):
     for ch in _children(module):
         _eval_node(ch, calls)
     return tuple(calls)
+
+
+def calls_with_parso(source_text):
+    module = GRAMMAR27.parse(
+        (source_text or "") + ("" if (source_text or "").endswith("\n") else "\n")
+    )
+    calls = []
+    for ch in _children(module):
+        _eval_node(ch, calls)
+    return calls
+
+
+def calls_for_lineno(source_text, call_lineno):
+    filtered = []
+    for call in calls_with_parso(source_text):
+        line_start = call.get("line_start")
+        line_end = call.get("line_end", line_start)
+        if (
+            isinstance(line_start, int)
+            and isinstance(line_end, int)
+            and line_start <= call_lineno <= line_end
+        ):
+            filtered.append(call)
+    return filtered
 
 
 def parse_warning_callsite(line):
@@ -214,6 +240,9 @@ def parse_warning_callsite(line):
     return {
         "filename": m.group("filename"),
         "lineno": int(m.group("lineno")),
+        "header_lineno": int(m.group("lineno")),
+        "call_filename": callsite.group("call_filename"),
+        "call_lineno": int(callsite.group("call_lineno")),
         "func": callsite.group("func"),
         "offset": int(bc.group("offset")),
         "opname": bc.group("opname"),
@@ -262,7 +291,32 @@ def resolve_callsite(source_path, func_name, call_lineno, offset, py2_bin=None):
     src = _read_source(source_path)
     lines = src.splitlines()
     line_text = lines[call_lineno - 1] if 1 <= call_lineno <= len(lines) else ""
-    line_calls = line_calls_with_parso(line_text)
+    line_calls = calls_for_lineno(src, call_lineno)
+    if not line_calls:
+        line_calls = line_calls_with_parso(line_text)
+        for call in line_calls:
+            call.setdefault("line_start", call_lineno)
+            call.setdefault("line_end", call_lineno)
+
+    if line_calls:
+        statement_start = min(
+            call.get("line_start", call_lineno)
+            for call in line_calls
+            if isinstance(call.get("line_start"), int)
+        )
+        statement_end = max(
+            call.get("line_end", call_lineno)
+            for call in line_calls
+            if isinstance(call.get("line_end"), int)
+        )
+    else:
+        statement_start = call_lineno
+        statement_end = call_lineno
+
+    if 1 <= statement_start <= statement_end <= len(lines):
+        statement_text = "\n".join(lines[statement_start - 1:statement_end])
+    else:
+        statement_text = line_text
     line_callees = [c.get("callee") for c in line_calls]
 
     offsets = call_offsets_with_py2(source_path, func_name, call_lineno, py2_bin)
@@ -271,6 +325,11 @@ def resolve_callsite(source_path, func_name, call_lineno, offset, py2_bin=None):
             "source": source_path,
             "func": func_name,
             "lineno": call_lineno,
+            "line_text": line_text,
+            "statement_text": statement_text,
+            "statement_start": statement_start,
+            "statement_end": statement_end,
+            "resolution_status": "offset_not_found",
             "offset": offset,
             "callee": None,
             "known_offsets": offsets,
@@ -285,6 +344,10 @@ def resolve_callsite(source_path, func_name, call_lineno, offset, py2_bin=None):
         "source": source_path,
         "func": func_name,
         "lineno": call_lineno,
+        "line_text": line_text,
+        "statement_text": statement_text,
+        "statement_start": statement_start,
+        "statement_end": statement_end,
         "offset": offset,
         "callee": callee,
         "resolved_call": resolved_call,
@@ -292,6 +355,7 @@ def resolve_callsite(source_path, func_name, call_lineno, offset, py2_bin=None):
         "known_callees": line_callees,
         "known_calls": line_calls,
         "call_index": idx,
+        "resolution_status": "resolved" if resolved_call is not None else "call_index_out_of_range",
     }
 
 
@@ -304,7 +368,7 @@ def resolve_warning_callsite(warning_header, py2_bin=None, source_path=None):
     parsed = parse_warning_callsite(warning_header)
     if not parsed:
         return None
-    src = source_path or parsed["filename"]
+    src = parsed.get("call_filename") or source_path or parsed["filename"]
     if src.startswith("./"):
         src = src[2:]
     if not os.path.exists(src):
@@ -313,7 +377,7 @@ def resolve_warning_callsite(warning_header, py2_bin=None, source_path=None):
     out = resolve_callsite(
         src,
         parsed["func"],
-        parsed["lineno"],
+        parsed.get("call_lineno") or parsed["lineno"],
         parsed["offset"],
         py2_bin=py2_bin,
     )

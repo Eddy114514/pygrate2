@@ -2,6 +2,8 @@ import os
 import re
 import sys
 
+from models.rule_models import WarningRule, method_rename_rule
+
 _ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _VENDOR_DIR = os.path.join(_ROOT_DIR, ".vendor")
 if os.path.isdir(_VENDOR_DIR) and _VENDOR_DIR not in sys.path:
@@ -138,149 +140,151 @@ def bytesio_truncate_fix(line: str, raw: dict):
 
 
 WARNING_RULES = [
-    {
-        "warning_type": "PRINT_WARNING",
-        "message_contains": "print must be called as a function",
-        "fix_kind": "regex_sub",
-        "pattern": re.compile(r"print\s+(.+)"),
-        "replacement": r"print(\1)",
-        "fix_scope": "line",
-        "highlight": "print",
-    },
-    {
-        "warning_type": "HAS_KEY_WARNING",
-        "message_contains": "dict.has_key() not supported",
-        "fix_kind": "regex_sub",
-        "pattern": re.compile(
+    WarningRule(
+        name="print_statement",
+        warning_type="PRINT_WARNING",
+        message_match="print must be called as a function",
+        fix_kind="regex_sub",
+        pattern=re.compile(r"print\s+(.+)"),
+        replacement=r"print(\1)",
+        fix_scope="line",
+        highlight_mode="print",
+        regex_grade="B",
+        notes="Still regex-based; complex print redirection and trailing comma forms remain fragile.",
+    ),
+    WarningRule(
+        name="dict_has_key",
+        warning_type="HAS_KEY_WARNING",
+        message_match="dict.has_key() not supported",
+        fix_kind="regex_sub",
+        pattern=re.compile(
             r"(?P<obj>[A-Za-z_][\w\.\[\]]*)\.has_key\(\s*(?P<key>.+?)\s*\)"
         ),
-        "replacement": r"\g<key> in \g<obj>",
-        "fix_scope": "expression",
-        "highlight": "haskey",
-    },
-    {
-        "warning_type": "DICT_VIEWKEYS_WARNING",
-        "message_contains": "dict.viewkeys() is not supported in 3.x",
-        "fix_kind": "regex_sub",
-        "pattern": re.compile(
-            r"(?P<obj>[A-Za-z_][\w\.\[\]\(\)]*)\.viewkeys\(\)"
-        ),
-        "replacement": r"\g<obj>.keys()",
-        "fix_scope": "expression",
-        "highlight": "dict",
-    },
-    {
-        "warning_type": "DICT_VIEWVALUES_WARNING",
-        "message_contains": "dict.viewvalues() is not supported in 3.x",
-        "fix_kind": "regex_sub",
-        "pattern": re.compile(
-            r"(?P<obj>[A-Za-z_][\w\.\[\]\(\)]*)\.viewvalues\(\)"
-        ),
-        "replacement": r"\g<obj>.values()",
-        "fix_scope": "expression",
-        "highlight": "dict",
-    },
-    {
-        "warning_type": "DICT_VIEWITEMS_WARNING",
-        "message_contains": "dict.viewitems() is not supported in 3.x",
-        "fix_kind": "regex_sub",
-        "pattern": re.compile(
-            r"(?P<obj>[A-Za-z_][\w\.\[\]\(\)]*)\.viewitems\(\)"
-        ),
-        "replacement": r"\g<obj>.items()",
-        "fix_scope": "expression",
-        "highlight": "dict",
-    },
-    {
-        "warning_type": "DICT_ITERKEYS_WARNING",
-        "message_contains": "dict.iterkeys() is not supported in 3.x",
-        "fix_kind": "regex_sub",
-        "pattern": re.compile(
-            r"(?P<obj>[A-Za-z_][\w\.\[\]\(\)]*)\.iterkeys\(\)"
-        ),
-        "replacement": r"\g<obj>.keys()",
-        "fix_scope": "expression",
-        "highlight": "dict",
-    },
-    {
-        "warning_type": "DICT_ITERVALUES_WARNING",
-        "message_contains": "dict.itervalues() is not supported in 3.x",
-        "fix_kind": "regex_sub",
-        "pattern": re.compile(
-            r"(?P<obj>[A-Za-z_][\w\.\[\]\(\)]*)\.itervalues\(\)"
-        ),
-        "replacement": r"\g<obj>.values()",
-        "fix_scope": "expression",
-        "highlight": "dict",
-    },
-    {
-        "warning_type": "DICT_ITERITEMS_WARNING",
-        "message_contains": "dict.iteritems() is not supported in 3.x",
-        "fix_kind": "regex_sub",
-        "pattern": re.compile(
-            r"(?P<obj>[A-Za-z_][\w\.\[\]\(\)]*)\.iteritems\(\)"
-        ),
-        "replacement": r"\g<obj>.items()",
-        "fix_scope": "expression",
-        "highlight": "dict",
-    },
-    {
-        "warning_type": "BUFFER_WARNING",
-        "message_contains": "buffer() not supported in 3.x",
-        "fix_kind": "regex_sub",
-        "pattern": re.compile(
-            r"\bbuffer\(\s*(?P<arg>.+?)\s*\)"
-        ),
-        "replacement": r"memoryview(\g<arg>)",
-        "fix_scope": "expression",
-        "highlight": "buffer",
-    },
-    {
-        "warning_type": "FILE_CONSTRUCTOR_WARNING",
-        "message_contains": "The builtin 'file()'/'open()' function is not supported in 3.x",
-        "fix_scope": "line",
-        "highlight": "fileio",
-    },
-    {
-        "warning_type": "BYTESIO_TRUNCATE_WARNING",
-        "message_contains": "BytesIO.truncate() does not shift the file pointer",
-        "fix_kind": "callable",
-        "replacement_func": bytesio_truncate_fix,
-        "fix_scope": "line",
-        "highlight": "bytesio",
-    },
-    {
-        "warning_type": "TOKENIZE_WARNING",
-        "message_contains": "tokenize() changed in 3.x",
-        "fix_scope": "line",
-        "highlight": "tokenize",
-    },
-    {
-        "warning_type": "BASE64_B64ENCODE_WARNING",
-        "message_contains": "base64.b64encode returns str in Python 2",
-        "fix_scope": "line",
-        "highlight": "base64",
-    },
-    {
-        "warning_type": "BASE64_B32ENCODE_WARNING",
-        "message_contains": "base64.b32encode returns str in Python 2",
-        "fix_scope": "line",
-        "highlight": "base64",
-    },
-    {
-        "warning_type": "BASE64_B16ENCODE_WARNING",
-        "message_contains": "base64.b16encode returns str in Python 2",
-        "fix_scope": "line",
-        "highlight": "base64",
-    },
-    {
-        "warning_type": "CMP_ARG_WARNING",
-        "message_contains": "the cmp argument is not supported in 3.x",
-        "fix_kind": "regex_sub",
-        "pattern": re.compile(r"\bcmp\s*=\s*(?P<cmp>[^,\)\]]+)"),
-        "replacement": r"key=cmp_to_key(\g<cmp>)",
-        "fix_scope": "line",
-        "highlight": "cmp",
-        "imports": ["from functools import cmp_to_key"],
-    },
+        replacement=r"\g<key> in \g<obj>",
+        fix_scope="expression",
+        highlight_mode="haskey",
+        regex_grade="C",
+        notes="Useful today, but nested calls and richer receiver expressions should eventually use structured matching.",
+    ),
+    method_rename_rule(
+        name="dict_viewkeys",
+        warning_type="DICT_VIEWKEYS_WARNING",
+        message_match="dict.viewkeys() is not supported in 3.x",
+        method_name="viewkeys",
+        replacement_method="keys",
+    ),
+    method_rename_rule(
+        name="dict_viewvalues",
+        warning_type="DICT_VIEWVALUES_WARNING",
+        message_match="dict.viewvalues() is not supported in 3.x",
+        method_name="viewvalues",
+        replacement_method="values",
+    ),
+    method_rename_rule(
+        name="dict_viewitems",
+        warning_type="DICT_VIEWITEMS_WARNING",
+        message_match="dict.viewitems() is not supported in 3.x",
+        method_name="viewitems",
+        replacement_method="items",
+    ),
+    method_rename_rule(
+        name="dict_iterkeys",
+        warning_type="DICT_ITERKEYS_WARNING",
+        message_match="dict.iterkeys() is not supported in 3.x",
+        method_name="iterkeys",
+        replacement_method="keys",
+    ),
+    method_rename_rule(
+        name="dict_itervalues",
+        warning_type="DICT_ITERVALUES_WARNING",
+        message_match="dict.itervalues() is not supported in 3.x",
+        method_name="itervalues",
+        replacement_method="values",
+    ),
+    method_rename_rule(
+        name="dict_iteritems",
+        warning_type="DICT_ITERITEMS_WARNING",
+        message_match="dict.iteritems() is not supported in 3.x",
+        method_name="iteritems",
+        replacement_method="items",
+    ),
+    WarningRule(
+        name="buffer_builtin",
+        warning_type="BUFFER_WARNING",
+        message_match="buffer() not supported in 3.x",
+        fix_kind="regex_sub",
+        pattern=re.compile(r"\bbuffer\(\s*(?P<arg>.+?)\s*\)"),
+        replacement=r"memoryview(\g<arg>)",
+        fix_scope="expression",
+        highlight_mode="buffer",
+        regex_grade="A",
+    ),
+    WarningRule(
+        name="file_constructor",
+        warning_type="FILE_CONSTRUCTOR_WARNING",
+        message_match="The builtin 'file()'/'open()' function is not supported in 3.x",
+        fix_scope="line",
+        highlight_mode="fileio",
+        regex_grade="B",
+        notes="Presentation-only today; no backend auto-fix proposal.",
+    ),
+    WarningRule(
+        name="bytesio_truncate",
+        warning_type="BYTESIO_TRUNCATE_WARNING",
+        message_match="BytesIO.truncate() does not shift the file pointer",
+        fix_kind="callable",
+        replacement_func=bytesio_truncate_fix,
+        fix_scope="line",
+        highlight_mode="bytesio",
+        regex_grade="A",
+    ),
+    WarningRule(
+        name="tokenize_behavior",
+        warning_type="TOKENIZE_WARNING",
+        message_match="tokenize() changed in 3.x",
+        fix_scope="line",
+        highlight_mode="tokenize",
+        regex_grade="B",
+        notes="No auto-fix yet.",
+    ),
+    WarningRule(
+        name="base64_b64encode",
+        warning_type="BASE64_B64ENCODE_WARNING",
+        message_match="base64.b64encode returns str in Python 2",
+        fix_scope="line",
+        highlight_mode="base64",
+        regex_grade="B",
+        notes="No auto-fix yet.",
+    ),
+    WarningRule(
+        name="base64_b32encode",
+        warning_type="BASE64_B32ENCODE_WARNING",
+        message_match="base64.b32encode returns str in Python 2",
+        fix_scope="line",
+        highlight_mode="base64",
+        regex_grade="B",
+        notes="No auto-fix yet.",
+    ),
+    WarningRule(
+        name="base64_b16encode",
+        warning_type="BASE64_B16ENCODE_WARNING",
+        message_match="base64.b16encode returns str in Python 2",
+        fix_scope="line",
+        highlight_mode="base64",
+        regex_grade="B",
+        notes="No auto-fix yet.",
+    ),
+    WarningRule(
+        name="cmp_argument",
+        warning_type="CMP_ARG_WARNING",
+        message_match="the cmp argument is not supported in 3.x",
+        fix_kind="regex_sub",
+        pattern=re.compile(r"\bcmp\s*=\s*(?P<cmp>[^,\)\]]+)"),
+        replacement=r"key=cmp_to_key(\g<cmp>)",
+        fix_scope="line",
+        highlight_mode="cmp",
+        imports=("from functools import cmp_to_key",),
+        regex_grade="C",
+        notes="Still regex-based; nested expressions and multiline kwargs should eventually use structured matching.",
+    ),
 ]
