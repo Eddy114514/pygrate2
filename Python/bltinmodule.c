@@ -6,6 +6,7 @@
 #include "node.h"
 #include "code.h"
 #include "eval.h"
+#include "pygrate_warning_utils.h"
 
 #include <ctype.h>
 #include <float.h> /* for DBL_MANT_DIG and friends */
@@ -1275,6 +1276,7 @@ static PyObject *
 builtin_intern(PyObject *self, PyObject *args)
 {
     PyObject *s;
+    PygrateWarningContext warn_ctx;
     if (!PyArg_ParseTuple(args, "S:intern", &s))
         return NULL;
     if (!PyString_CheckExact(s)) {
@@ -1282,6 +1284,16 @@ builtin_intern(PyObject *self, PyObject *args)
                         "can't intern subclass of string");
         return NULL;
     }
+    pygrate_capture_warning_context(&warn_ctx);
+    if (pygrate_warn_py3k_with_context("intern() is not supported in 3.x",
+                                       &warn_ctx,
+                                       "builtin.intern",
+                                       NULL,
+                                       -1,
+                                       -1,
+                                       NULL,
+                                       1) < 0)
+        return NULL;
     Py_INCREF(s);
     PyString_InternInPlace(&s);
     return s;
@@ -1970,8 +1982,33 @@ builtin_range(PyObject *self, PyObject *args)
     long ilow = 0, ihigh = 0, istep = 1;
     long bign;
     Py_ssize_t i, n;
+    PygrateWarningContext warn_ctx;
+    int should_warn;
+    int materialize;
 
     PyObject *v;
+
+    pygrate_capture_warning_context(&warn_ctx);
+    should_warn = 0;
+    materialize = -1;
+    if (warn_ctx.consumer_opname != NULL) {
+        if (strcmp(warn_ctx.consumer_opname, "BINARY_ADD") == 0 ||
+                strcmp(warn_ctx.consumer_opname, "INPLACE_ADD") == 0) {
+            should_warn = 1;
+            materialize = 1;
+        }
+    }
+    if (should_warn &&
+            pygrate_warn_py3k_with_context(
+                "range() may require list materialization in 3.x",
+                &warn_ctx,
+                "builtin.range",
+                NULL,
+                materialize,
+                -1,
+                NULL,
+                1) < 0)
+        return NULL;
 
     if (PyTuple_Size(args) <= 1) {
         if (!PyArg_ParseTuple(args,

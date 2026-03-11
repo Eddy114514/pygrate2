@@ -50,8 +50,11 @@ export function saveAndReanalyze({ engineRoot, projectRoot, filePath, sourceText
   });
 }
 
-export function loadDiff({ projectRoot }) {
+export function loadDiff({ projectRoot, filePath }) {
   const params = new URLSearchParams({ root: projectRoot || "" });
+  if (filePath) {
+    params.set("file", filePath);
+  }
   return requestJson(`/api/diff?${params.toString()}`);
 }
 

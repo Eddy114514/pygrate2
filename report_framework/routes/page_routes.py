@@ -80,7 +80,7 @@ def diff_view():
     if not project_root:
         return redirect(url_for("pages.project_view"))
 
-    diff_state = load_project_diff(os.path.abspath(project_root))
+    diff_state = load_project_diff(os.path.abspath(project_root), file_path=file_path or None)
     return render_template(
         "diff.html",
         project_root=project_root,

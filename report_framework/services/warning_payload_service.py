@@ -22,6 +22,7 @@ def warning_to_payload(warning) -> Dict[str, object]:
         "proposal": warning.fix_proposal,
         "resolutionStatus": getattr(warning, "resolution_status", None),
         "resolutionDetails": getattr(warning, "resolution_details", None),
+        "metadata": getattr(warning, "metadata", None),
     }
     payload["warningId"] = build_warning_id(payload)
     return payload

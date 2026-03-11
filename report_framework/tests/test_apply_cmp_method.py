@@ -7,9 +7,10 @@ from unittest import mock
 
 
 HERE = os.path.abspath(os.path.dirname(__file__))
-REPO_ROOT = os.path.abspath(os.path.join(HERE, ".."))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
+REPORT_FRAMEWORK_ROOT = os.path.abspath(os.path.join(HERE, ".."))
+REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+if REPORT_FRAMEWORK_ROOT not in sys.path:
+    sys.path.insert(0, REPORT_FRAMEWORK_ROOT)
 
 import framework
 import resolve_warning_calls as resolver

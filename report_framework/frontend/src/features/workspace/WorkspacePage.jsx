@@ -136,6 +136,27 @@ export default function WorkspacePage({ initialData }) {
     }
   };
 
+  const openDiffPage = () => {
+    if (!projectState.projectRoot) {
+      message.warning("No project root is loaded.");
+      return;
+    }
+    const params = new URLSearchParams({
+      root: projectState.projectRoot || "",
+    });
+    if (projectState.currentFile) {
+      params.set("file", projectState.currentFile);
+    }
+    window.open(`/diff?${params.toString()}`, "_blank", "noopener,noreferrer");
+  };
+
+  const handleBottomTabChange = async (key) => {
+    setDiffState((prev) => ({ ...prev, activeTab: key }));
+    if (key === "saved") {
+      await loadSavedDiff();
+    }
+  };
+
   const warningTabs = [
     {
       key: "output",
@@ -191,7 +212,7 @@ export default function WorkspacePage({ initialData }) {
         onPreviewSelected={() => applyPreview(selectedWarning ? [selectedWarning] : filteredWarnings)}
         onFixSelected={() => applyPreview(selectedWarning ? [selectedWarning] : [])}
         onFixAll={() => applyPreview(filteredWarnings)}
-        onLoadDiff={loadSavedDiff}
+        onOpenDiffPage={openDiffPage}
       />
 
       {analysisState.error ? (
@@ -234,9 +255,10 @@ export default function WorkspacePage({ initialData }) {
               />
               <Card className="workspace-bottom-card" size="small">
                 <Tabs
+                  className="workspace-bottom-tabs"
                   activeKey={diffState.activeTab}
                   items={warningTabs}
-                  onChange={(key) => setDiffState((prev) => ({ ...prev, activeTab: key }))}
+                  onChange={handleBottomTabChange}
                 />
               </Card>
             </div>

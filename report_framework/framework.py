@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import importlib.util
+import json
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -32,10 +33,12 @@ class WarningRecord:
     fix_proposal: Optional[Dict[str, object]] = None
     resolution_status: Optional[str] = None
     resolution_details: Optional[Dict[str, object]] = None
+    metadata: Optional[Dict[str, object]] = None
 
 HEADER_RE = re.compile(
     r'^(?P<filename>.*?):(?P<lineno>\d+): (?P<category>[^:]+): (?P<msgfix>.*)$'
 )
+METADATA_PREFIX = "[pygrate-meta]"
 
 
 def _load_callsite_resolver():
@@ -83,8 +86,18 @@ def _parse_warning_block(lines: List[str]):
         message = msgfix
 
     code_line = ""
-    if len(lines) > 1 and lines[1].startswith("  "):
-        code_line = lines[1].strip()
+    metadata = None
+    for extra_line in lines[1:]:
+        stripped = extra_line.strip()
+        if stripped.startswith(METADATA_PREFIX):
+            payload = stripped[len(METADATA_PREFIX):].strip()
+            try:
+                metadata = json.loads(payload)
+            except Exception:
+                metadata = {"raw": payload}
+            continue
+        if not code_line and extra_line.startswith("  "):
+            code_line = stripped
 
     return {
         "header": lines[0],
@@ -94,6 +107,7 @@ def _parse_warning_block(lines: List[str]):
         "message": message,
         "fix_text": fix_text,
         "line": code_line,
+        "metadata": metadata,
     }
 
 
@@ -224,7 +238,7 @@ def _read_source_line(path: str, lineno: int) -> str:
     return ""
 
 
-def _enrich_with_rule(raw: dict):
+def _enrich_with_rule(raw: dict, resolved_callsite: Optional[dict] = None):
     """
     Given a raw parsed warning dict, apply WARNING_RULES to:
       - assign warning_type
@@ -242,6 +256,12 @@ def _enrich_with_rule(raw: dict):
     for rule in WARNING_RULES:
         if rule.message_match not in msg:
             continue
+
+        if callable(rule.instance_builder):
+            built_instances = rule.instance_builder(raw, resolved_callsite, rule)
+            if built_instances:
+                instances.extend(built_instances)
+            break
 
         warning_type = rule.warning_type
         fix_kind = rule.fix_kind
@@ -441,10 +461,16 @@ def _extract_runtime_output(stdout: str, stderr: str) -> str:
         line = lines[idx]
         if HEADER_RE.match(line):
             idx += 1
-            if idx < len(lines):
+            while idx < len(lines):
                 next_line = lines[idx]
+                stripped = next_line.strip()
+                if stripped.startswith(METADATA_PREFIX):
+                    idx += 1
+                    continue
                 if next_line.startswith("  ") and not next_line.startswith("  File "):
                     idx += 1
+                    continue
+                break
             continue
         kept_lines.append(line)
         idx += 1
@@ -501,7 +527,7 @@ def analyze_file_with_output(pygrate_root: Optional[str], project_root: str, fil
         rel_filename = os.path.relpath(abs_filename, abs_root)
         resolved_callsite = _resolve_warning_callsite(raw, abs_filename, pygrate_root)
         cmp_instance = _resolve_cmp_method_instance(raw, resolved_callsite)
-        instances = [cmp_instance] if cmp_instance else _enrich_with_rule(raw)
+        instances = [cmp_instance] if cmp_instance else _enrich_with_rule(raw, resolved_callsite)
         for instance in instances:
             record_filename = abs_filename
             record_rel_filename = rel_filename
@@ -536,6 +562,7 @@ def analyze_file_with_output(pygrate_root: Optional[str], project_root: str, fil
                 fix_proposal=proposal.to_dict() if proposal is not None else None,
                 resolution_status=instance.get("resolution_status"),
                 resolution_details=instance.get("resolution_details"),
+                metadata=raw.get("metadata"),
             )
             results.append(rec)
 

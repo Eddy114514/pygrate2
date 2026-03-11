@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 from apply_engine import build_unified_diff
 
 
-def load_project_diff(project_root: str) -> Dict[str, Optional[object]]:
+def load_project_diff(project_root: str, file_path: Optional[str] = None) -> Dict[str, Optional[object]]:
     """
     Diff semantics:
     - each `.pygrate_history/<file>.prev` stores the on-disk file contents
@@ -18,6 +18,10 @@ def load_project_diff(project_root: str) -> Dict[str, Optional[object]]:
     if not os.path.isdir(history_root):
         return {"diff_text": None, "add_count": add_count, "del_count": del_count}
 
+    target_rel = None
+    if file_path:
+        target_rel = os.path.normpath(file_path)
+
     all_diff_lines: List[str] = []
     for dirpath, _, files in os.walk(history_root):
         rel_dir = os.path.relpath(dirpath, history_root)
@@ -28,6 +32,10 @@ def load_project_diff(project_root: str) -> Dict[str, Optional[object]]:
             rel_file = name[:-5]
             if rel_dir != ".":
                 rel_file = os.path.join(rel_dir, rel_file)
+            rel_file = os.path.normpath(rel_file)
+
+            if target_rel and rel_file != target_rel:
+                continue
 
             abs_current = os.path.join(project_root, rel_file)
             hist_path = os.path.join(dirpath, name)

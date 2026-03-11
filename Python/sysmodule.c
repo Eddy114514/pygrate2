@@ -915,6 +915,29 @@ PyDoc_STRVAR(sys_clear_type_cache__doc__,
 "_clear_type_cache() -> None\n\
 Clear the internal type lookup cache.");
 
+static PyObject *
+sys_intern(PyObject *self, PyObject *args)
+{
+    PyObject *s;
+
+    if (!PyArg_ParseTuple(args, "S:intern", &s))
+        return NULL;
+    if (!PyString_CheckExact(s)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "can't intern subclass of string");
+        return NULL;
+    }
+    Py_INCREF(s);
+    PyString_InternInPlace(&s);
+    return s;
+}
+
+PyDoc_STRVAR(sys_intern__doc__,
+"intern(string) -> string\n\
+\n\
+Enter a string into the interpreter's internal interned-string table and\n\
+return the interned string object.");
+
 
 static PyMethodDef sys_methods[] = {
     /* Might as well keep this in alphabetic order */
@@ -963,6 +986,7 @@ static PyMethodDef sys_methods[] = {
     {"getwindowsversion", (PyCFunction)sys_getwindowsversion, METH_NOARGS,
      getwindowsversion_doc},
 #endif /* MS_WINDOWS */
+    {"intern",          sys_intern, METH_VARARGS, sys_intern__doc__},
 #ifdef USE_MALLOPT
     {"mdebug",          sys_mdebug, METH_VARARGS},
 #endif

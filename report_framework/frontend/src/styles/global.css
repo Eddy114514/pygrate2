@@ -103,11 +103,41 @@ body {
 
 .workspace-bottom-card {
   flex: 0 0 32%;
+  min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .workspace-summary-card {
   margin-bottom: 12px;
+}
+
+.workspace-bottom-card .ant-card-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 0 16px 16px;
+}
+
+.workspace-bottom-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-bottom-tabs .ant-tabs-nav {
+  margin: 0;
+  padding-top: 10px;
+}
+
+.workspace-bottom-tabs .ant-tabs-content-holder,
+.workspace-bottom-tabs .ant-tabs-content,
+.workspace-bottom-tabs .ant-tabs-tabpane {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 
 .warning-table {
@@ -130,22 +160,272 @@ body {
   padding-top: 4px;
 }
 
-.terminal {
+.terminal,
+.panel-shell {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  height: 100%;
 }
 
-.terminal pre,
+.panel-shell__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.panel-shell__header--spread {
+  justify-content: space-between;
+}
+
+.panel-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+}
+
+.panel-scroll::-webkit-scrollbar,
+.file-tree::-webkit-scrollbar,
+.gh-diff-file__body::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.panel-scroll::-webkit-scrollbar-thumb,
+.file-tree::-webkit-scrollbar-thumb,
+.gh-diff-file__body::-webkit-scrollbar-thumb {
+  background: rgba(79, 100, 128, 0.35);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+.panel-scroll::-webkit-scrollbar-track,
+.file-tree::-webkit-scrollbar-track,
+.gh-diff-file__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.panel-scroll,
+.file-tree,
+.gh-diff-file__body {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(79, 100, 128, 0.45) transparent;
+}
+
+.panel-scroll--terminal {
+  padding: 0;
+}
+
+.panel-code,
 .detail-pre {
   margin: 0;
   padding: 12px;
-  overflow: auto;
   background: #0f172a;
   color: #d6e2ff;
   border-radius: 12px;
   font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
   font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+  min-width: max-content;
+}
+
+.panel-scroll--terminal .panel-code {
+  min-height: calc(100% - 24px);
+}
+
+.panel-shell--output {
+  flex: 1;
+  min-height: 0;
+}
+
+.terminal-frame {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #08152f;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.terminal-frame__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  background: linear-gradient(180deg, #122247 0%, #0c1835 100%);
+}
+
+.terminal-frame__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.terminal-frame__dot--red {
+  background: #ff5f57;
+}
+
+.terminal-frame__dot--yellow {
+  background: #febc2e;
+}
+
+.terminal-frame__dot--green {
+  background: #28c840;
+}
+
+.terminal-frame__title {
+  margin-left: 6px;
+  color: #9fb3d9 !important;
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 12px;
+}
+
+.terminal-frame__body {
+  flex: 1;
+  min-height: 220px;
+  overflow: scroll;
+  background:
+    linear-gradient(180deg, rgba(11, 22, 48, 0.98) 0%, rgba(8, 21, 47, 1) 100%);
+}
+
+.panel-scroll--diff {
+  padding-right: 2px;
+}
+
+.panel-code--terminal {
+  min-height: 100%;
+  padding: 16px 18px;
+  background: transparent;
+  border-radius: 0;
+  color: #eef4ff;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.gh-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 4px;
+}
+
+.gh-diff-file {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.gh-diff-file__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+}
+
+.gh-diff-file__title,
+.gh-diff-file__stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gh-diff-file__stats {
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 12px;
+}
+
+.gh-diff-file__count--add {
+  color: #1a7f37;
+}
+
+.gh-diff-file__count--del {
+  color: #cf222e;
+}
+
+.gh-diff-file__body {
+  overflow: auto;
+  background: #ffffff;
+}
+
+.gh-diff-hunk + .gh-diff-hunk {
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.gh-diff-hunk__header {
+  padding: 8px 14px;
+  background: #ddf4ff;
+  color: #0b3d91;
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(11, 61, 145, 0.12);
+}
+
+.gh-diff-hunk__rows {
+  min-width: max-content;
+}
+
+.gh-diff-row {
+  display: grid;
+  grid-template-columns: 64px 64px minmax(0, 1fr);
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.gh-diff-row__number {
+  padding: 2px 10px;
+  color: #656d76;
+  background: #f6f8fa;
+  border-right: 1px solid rgba(15, 23, 42, 0.06);
+  border-bottom: 1px solid #eaeef2;
+  user-select: none;
+  text-align: right;
+}
+
+.gh-diff-row__content {
+  padding: 2px 12px;
+  white-space: pre;
+  color: #24292f;
+  background: #ffffff;
+  border-bottom: 1px solid #eaeef2;
+}
+
+.gh-diff-row--context .gh-diff-row__content {
+  background: #ffffff;
+}
+
+.gh-diff-row--addition .gh-diff-row__number,
+.gh-diff-row--addition .gh-diff-row__content {
+  background: #dafbe1;
+}
+
+.gh-diff-row--deletion .gh-diff-row__number,
+.gh-diff-row--deletion .gh-diff-row__content {
+  background: #ffebe9;
+}
+
+.gh-diff-row--meta .gh-diff-row__number {
+  background: #f6f8fa;
+}
+
+.gh-diff-row--meta .gh-diff-row__content {
+  background: #f6f8fa;
+  color: #57606a;
 }
 
 .rf-warning-line {

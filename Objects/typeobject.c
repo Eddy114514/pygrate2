@@ -1,6 +1,7 @@
 /* Type object implementation */
 
 #include "Python.h"
+#include "pygrate_warning_utils.h"
 #include "structmember.h"
 
 #include <ctype.h>
@@ -4854,9 +4855,22 @@ wrap_next(PyObject *self, PyObject *args, void *wrapped)
 {
     unaryfunc func = (unaryfunc)wrapped;
     PyObject *res;
+    PygrateWarningContext warn_ctx;
 
     if (!check_num_args(args, 0))
         return NULL;
+    if (Py_TYPE(self)->tp_iter != NULL) {
+        pygrate_capture_warning_context(&warn_ctx);
+        if (pygrate_warn_py3k_with_context("iterator.next() is not supported in 3.x",
+                                           &warn_ctx,
+                                           "iterator.next",
+                                           Py_TYPE(self)->tp_name,
+                                           -1,
+                                           -1,
+                                           NULL,
+                                           1) < 0)
+            return NULL;
+    }
     res = (*func)(self);
     if (res == NULL && !PyErr_Occurred())
         PyErr_SetNone(PyExc_StopIteration);

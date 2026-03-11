@@ -52,8 +52,8 @@
 - `report_framework/apply_engine.py`
 
 ### 测试 / legacy 标注
-- `report_framework/test_apply_engine.py`
-- `report_framework/test_apply_cmp_method.py`
+- `report_framework/tests/test_apply_engine.py`
+- `report_framework/tests/test_apply_cmp_method.py`
 - `report_framework/static/editor_app.js`
 - `report_framework/static/project_app.js`
 - `report_framework/templates/report.html`
@@ -351,8 +351,8 @@ python3 -m py_compile \
   report_framework/models/rule_models.py \
   report_framework/warning_fixes.py \
   report_framework/framework.py \
-  report_framework/test_apply_engine.py \
-  report_framework/test_apply_cmp_method.py
+  report_framework/tests/test_apply_engine.py \
+  report_framework/tests/test_apply_cmp_method.py
 ```
 
 结果：通过。
@@ -424,12 +424,12 @@ npm run build
 ### 打开项目
 1. 在项目页输入：
    - engine root: `/home/cmu/pygrate2`
-   - project root: `/home/cmu/pygrate2/report_framework/test`
+   - project root: `/home/cmu/pygrate2/report_framework/sample_workspace`
 2. 点击 `Open Workspace`
 3. 确认进入统一 workspace，而不是旧版 editor/report 页面
 
 ### 选择文件与 Analyze
-1. 在左侧树选择 `test_scripte.py`
+1. 在左侧树选择 `basic_warnings.py`
 2. 确认中间编辑器加载源码
 3. 点击 `Analyze` 或 `Reanalyze`
 4. 确认右侧 warning 列表出现
@@ -462,11 +462,11 @@ npm run build
 2. 确认底部 `Saved Diff` 有内容
 3. 如需 fallback，再访问：
    ```text
-   http://127.0.0.1:5000/diff?root=/home/cmu/pygrate2/report_framework/test&file=test_scripte.py
+   http://127.0.0.1:5000/diff?root=/home/cmu/pygrate2/report_framework/sample_workspace&file=basic_warnings.py
    ```
 
 ### CMP_METHOD_WARNING 定位
-1. 在 `test_scripte.py` 中定位 `CMP_METHOD_WARNING`
+1. 在 `basic_warnings.py` 中定位 `CMP_METHOD_WARNING`
 2. 点击 warning
 3. 确认：
    - 仍可正确跳到 caller site

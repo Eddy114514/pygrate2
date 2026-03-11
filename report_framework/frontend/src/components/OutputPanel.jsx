@@ -28,9 +28,23 @@ export default function OutputPanel({
     return <Empty description="No runtime output available yet" />;
   }
   return (
-    <div className="terminal terminal--output">
-      <Typography.Text strong>Runtime Output</Typography.Text>
-      <pre>{runOutput}</pre>
+    <div className="panel-shell panel-shell--output">
+      <div className="panel-shell__header">
+        <Typography.Text strong>Runtime Output</Typography.Text>
+      </div>
+      <div className="terminal-frame">
+        <div className="terminal-frame__bar">
+          <span className="terminal-frame__dot terminal-frame__dot--red" />
+          <span className="terminal-frame__dot terminal-frame__dot--yellow" />
+          <span className="terminal-frame__dot terminal-frame__dot--green" />
+          <Typography.Text className="terminal-frame__title">
+            {currentFile || "terminal"}
+          </Typography.Text>
+        </div>
+        <div className="panel-scroll panel-scroll--terminal terminal-frame__body">
+          <pre className="panel-code panel-code--terminal">{runOutput}</pre>
+        </div>
+      </div>
     </div>
   );
 }

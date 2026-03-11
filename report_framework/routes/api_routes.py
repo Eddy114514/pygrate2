@@ -150,6 +150,12 @@ def api_analyze_file():
 @api_bp.route("/api/diff", methods=["GET"])
 def api_diff():
     project_root = request.args.get("root") or ""
+    file_path = request.args.get("file") or ""
     if not project_root:
         return _missing_params_error()
-    return jsonify({"ok": True, **load_project_diff(os.path.abspath(project_root))})
+    return jsonify(
+        {
+            "ok": True,
+            **load_project_diff(os.path.abspath(project_root), file_path=file_path or None),
+        }
+    )

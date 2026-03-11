@@ -22,6 +22,7 @@
  * @property {Object | null | undefined} proposal
  * @property {string | null | undefined} resolutionStatus
  * @property {Object | null | undefined} resolutionDetails
+ * @property {Object | null | undefined} metadata
  */
 
 export {};

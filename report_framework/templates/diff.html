@@ -2,71 +2,294 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Pygrate Diff View</title>
-    <!-- Legacy fallback page: primary diff workflow now lives in the workspace bottom panel. -->
-
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
     <link rel="stylesheet"
           href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css" />
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f8fa;
+            --panel: #ffffff;
+            --panel-subtle: #f6f8fa;
+            --border: #d0d7de;
+            --border-muted: #eaeef2;
+            --text: #24292f;
+            --muted: #57606a;
+            --accent: #0969da;
+            --accent-soft: #ddf4ff;
+            --success: #1a7f37;
+            --danger: #cf222e;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            min-height: 100%;
+            background:
+                radial-gradient(circle at top left, rgba(9, 105, 218, 0.08), transparent 22rem),
+                linear-gradient(180deg, #f6f8fa 0%, #eef2f7 100%);
+            color: var(--text);
+            font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        }
+
+        .diff-shell {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .diff-topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            padding: 14px 22px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.88);
+            backdrop-filter: blur(14px);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 1px 0 rgba(27, 31, 36, 0.04);
+        }
+
+        .diff-topbar__meta {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .diff-topbar__title {
+            font-size: 19px;
+            font-weight: 700;
+        }
+
+        .diff-topbar__path {
+            color: var(--muted);
+            font-size: 13px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .diff-topbar__actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .diff-chip,
+        .diff-link {
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 7px 12px;
+            background: var(--panel);
+            color: var(--text);
+            text-decoration: none;
+            font-size: 13px;
+        }
+
+        .diff-chip strong {
+            color: var(--accent);
+        }
+
+        .diff-link:hover {
+            border-color: rgba(9, 105, 218, 0.36);
+            color: var(--accent);
+            background: #f3f4f6;
+        }
+
+        .diff-main {
+            padding: 24px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .diff-frame {
+            width: min(1680px, 100%);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            background: var(--panel);
+            box-shadow: 0 12px 32px rgba(27, 31, 36, 0.08);
+        }
+
+        .diff-empty {
+            padding: 28px;
+            color: var(--muted);
+        }
+
+        .d2h-wrapper,
+        .d2h-file-wrapper,
+        .d2h-file-side-diff,
+        .d2h-files-diff,
+        .d2h-file-collapse {
+            background: transparent !important;
+        }
+
+        .d2h-file-wrapper {
+            border: 0 !important;
+            margin: 0 0 18px !important;
+            box-shadow: none !important;
+        }
+
+        .d2h-file-header {
+            background: linear-gradient(180deg, #ffffff 0%, #f6f8fa 100%) !important;
+            border-bottom: 1px solid var(--border) !important;
+            color: var(--text) !important;
+            padding: 12px 16px !important;
+        }
+
+        .d2h-file-name {
+            color: var(--text) !important;
+            font-weight: 700;
+        }
+
+        .d2h-tag {
+            background: rgba(26, 127, 55, 0.12) !important;
+            color: var(--success) !important;
+            border: 1px solid rgba(26, 127, 55, 0.18) !important;
+        }
+
+        .d2h-code-linenumber,
+        .d2h-code-side-linenumber {
+            width: 56px !important;
+            min-width: 56px !important;
+            background: var(--panel-subtle) !important;
+            color: #656d76 !important;
+            border-color: var(--border-muted) !important;
+            text-align: right !important;
+            padding: 0 10px !important;
+        }
+
+        .d2h-code-line,
+        .d2h-code-side-line {
+            background: #ffffff !important;
+            border-color: var(--border-muted) !important;
+        }
+
+        .d2h-del td {
+            background: #ffebe9 !important;
+        }
+
+        .d2h-ins td {
+            background: #dafbe1 !important;
+        }
+
+        .d2h-info td {
+            background: var(--accent-soft) !important;
+            color: #0b3d91 !important;
+        }
+
+        .d2h-code-line-ctn,
+        .d2h-code-side-line-ctn {
+            color: var(--text) !important;
+            font-family: "IBM Plex Mono", "SFMono-Regular", monospace !important;
+            font-size: 13px !important;
+            line-height: 1.6 !important;
+        }
+
+        .d2h-code-side-emptyplaceholder,
+        .d2h-emptyplaceholder {
+            background: #ffffff !important;
+            border-color: var(--border-muted) !important;
+        }
+
+        .d2h-files-diff {
+            padding: 18px !important;
+        }
+
+        .d2h-file-diff,
+        .d2h-diff-table {
+            background: #ffffff !important;
+        }
+
+        .d2h-diff-table {
+            font-size: 13px !important;
+            border-collapse: collapse !important;
+        }
+
+        .d2h-file-side-diff {
+            overflow-x: auto !important;
+        }
+
+        .d2h-code-line del,
+        .d2h-code-side-line del {
+            background: rgba(207, 34, 46, 0.18);
+            text-decoration: none;
+        }
+
+        .d2h-code-line ins,
+        .d2h-code-side-line ins {
+            background: rgba(26, 127, 55, 0.18);
+            text-decoration: none;
+        }
+
+        .d2h-del .d2h-code-side-linenumber,
+        .d2h-del .d2h-code-linenumber {
+            background: #ffebe9 !important;
+        }
+
+        .d2h-ins .d2h-code-side-linenumber,
+        .d2h-ins .d2h-code-linenumber {
+            background: #dafbe1 !important;
+        }
+
+        .d2h-cntx .d2h-code-side-linenumber,
+        .d2h-cntx .d2h-code-linenumber {
+            background: var(--panel-subtle) !important;
+        }
+
+        @media (max-width: 960px) {
+            .diff-topbar {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .diff-main {
+                padding: 12px;
+            }
+
+            .d2h-files-diff {
+                padding: 10px !important;
+            }
+        }
+    </style>
 </head>
 <body>
-<header>
-    <form method="GET" action="{{ url_for('pages.index') }}">
-        <label>
-            Project root:
-            <input type="text" name="root" value="{{ project_root }}">
-        </label>
-        <label>
-            File (relative to root):
-            <input type="text" name="file" value="{{ file_path }}">
-        </label>
-        <button type="submit">Analyze</button>
-    </form>
-
-    <nav class="top-nav">
-        <a href="{{ url_for('pages.index', root=project_root, file=file_path) }}" class="nav-link">
-            Editor
-        </a>
-        <a href="{{ url_for('pages.diff_view', root=project_root, file=file_path) }}" class="nav-link nav-link-active">
-            Diff
-        </a>
-    </nav>
-</header>
-
-<main>
-    <div class="diff-page">
-        {% if add_count is not none %}
-        <div class="diff-stat-wrapper">
-            <div class="diff-stat-bar">
-                <span class="add">+{{ add_count }}</span>
-                <span class="del">-{{ del_count }}</span>
-
-                <span class="bar">
-                    {% set total = add_count + del_count %}
-                    {% if total > 0 %}
-                        {% set blocks = (total // 5) + 1 %}
-                        {% if blocks > 8 %}
-                            {% set blocks = 8 %}
-                        {% endif %}
-                        {% for _ in range(blocks) %}
-                            <span class="blk"></span>
-                        {% endfor %}
-                    {% else %}
-                        <span class="blk empty"></span>
-                    {% endif %}
-                </span>
+<div class="diff-shell">
+    <header class="diff-topbar">
+        <div class="diff-topbar__meta">
+            <div class="diff-topbar__title">Saved Diff</div>
+            <div class="diff-topbar__path">
+                {{ file_path if file_path else project_root }}
             </div>
         </div>
-        {% endif %}
-
-        <div class="diff-container" id="diff-root">
-            {% if diff_text is none or not diff_text %}
-                <p style="margin:0;">No diff available. Please select a file, edit &amp; save at least once.</p>
+        <div class="diff-topbar__actions">
+            {% if add_count is not none %}
+            <div class="diff-chip"><strong>+{{ add_count }}</strong> additions</div>
+            <div class="diff-chip"><strong>-{{ del_count }}</strong> deletions</div>
             {% endif %}
+            <a class="diff-link" href="{{ url_for('pages.index', root=project_root, file=file_path) }}">Back To Workspace</a>
         </div>
-    </div>
-</main>
+    </header>
+
+    <main class="diff-main">
+        <div class="diff-frame">
+            <div class="diff-container" id="diff-root">
+                {% if diff_text is none or not diff_text %}
+                    <div class="diff-empty">No diff available. Save at least once to create a baseline, then reopen this view.</div>
+                {% endif %}
+            </div>
+        </div>
+    </main>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html.min.js"></script>
 

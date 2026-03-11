@@ -3,6 +3,7 @@ from typing import Callable, Optional, Pattern, Sequence
 
 
 ReplacementFunc = Callable[[str, dict], str]
+InstanceBuilder = Callable[[dict, Optional[dict], "WarningRule"], list]
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,7 @@ class WarningRule:
     pattern: Optional[Pattern[str]] = None
     replacement: Optional[str] = None
     replacement_func: Optional[ReplacementFunc] = None
+    instance_builder: Optional[InstanceBuilder] = None
     imports: Sequence[str] = field(default_factory=tuple)
     regex_grade: str = "A"
     notes: str = ""

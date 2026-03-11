@@ -29,7 +29,7 @@ export default function Toolbar({
   onPreviewSelected,
   onFixSelected,
   onFixAll,
-  onLoadDiff,
+  onOpenDiffPage,
 }) {
   return (
     <div className="workspace-toolbar">
@@ -58,7 +58,7 @@ export default function Toolbar({
         <Button icon={<ReloadOutlined />} onClick={onAnalyze}>
           Reanalyze
         </Button>
-        <Button icon={<FileSearchOutlined />} onClick={onLoadDiff}>
+        <Button icon={<FileSearchOutlined />} onClick={onOpenDiffPage}>
           View Diff
         </Button>
       </Space>

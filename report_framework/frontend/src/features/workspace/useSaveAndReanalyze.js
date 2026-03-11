@@ -24,10 +24,10 @@ export default function useSaveAndReanalyze({
   }, [currentFile, engineRoot, messageApi, onSaved, projectRoot, sourceText]);
 
   const reloadSavedDiff = useCallback(async () => {
-    const diff = await loadDiff({ projectRoot });
+    const diff = await loadDiff({ projectRoot, filePath: currentFile });
     onDiffLoaded(diff);
     return diff;
-  }, [onDiffLoaded, projectRoot]);
+  }, [currentFile, onDiffLoaded, projectRoot]);
 
   return { saveCurrentFile, reloadSavedDiff };
 }
