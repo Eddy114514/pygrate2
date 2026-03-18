@@ -69,21 +69,23 @@ export default function WarningTable({
           </Space>
         </Space>
       </div>
-      <Table
-        className="warning-table"
-        size="small"
-        rowKey={(warning) => warning.warningId}
-        dataSource={warnings}
-        columns={columns}
-        pagination={false}
-        locale={{ emptyText: "No warnings in the current view" }}
-        rowClassName={(warning) =>
-          warning.warningId === selectedWarningId ? "warning-table__row--selected" : ""
-        }
-        onRow={(record) => ({
-          onClick: () => onSelectWarning(record.warningId),
-        })}
-      />
+      <div className="warning-table__container">
+        <Table
+          className="warning-table"
+          size="small"
+          rowKey={(warning) => warning.warningId}
+          dataSource={warnings}
+          columns={columns}
+          pagination={false}
+          locale={{ emptyText: "No warnings in the current view" }}
+          rowClassName={(warning) =>
+            warning.warningId === selectedWarningId ? "warning-table__row--selected" : ""
+          }
+          onRow={(record) => ({
+            onClick: () => onSelectWarning(record.warningId),
+          })}
+        />
+      </div>
     </div>
   );
 }

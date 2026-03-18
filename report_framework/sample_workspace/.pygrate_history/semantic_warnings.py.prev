@@ -7,10 +7,10 @@ second_key = mapping.keys()[1]
 second_value = mapping.values()[1]
 second_item = mapping.items()[1]
 
-for number in xrange(3):
+for number in range(3):
     pass
 
-numbers = range(3) + [4]
+numbers = list(range(3)) + [4]
 
 base64_text = "prefix:" + base64.b64encode("x")
 base32_text = "prefix:" + base64.b32encode("x")

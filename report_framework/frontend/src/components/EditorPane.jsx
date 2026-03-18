@@ -71,25 +71,28 @@ export default function EditorPane({
         items={tabItems}
         onChange={onSelectTab}
       />
-      <CodeMirror
-        key={currentFile}
-        value={sourceText}
-        height="100%"
-        extensions={[
-          python(),
-          EditorView.lineWrapping,
-          ...decorationExtensions,
-        ]}
-        onChange={onChange}
-        basicSetup={{
-          lineNumbers: true,
-          highlightActiveLineGutter: true,
-          foldGutter: false,
-        }}
-        onCreateEditor={(view) => {
-          viewRef.current = view;
-        }}
-      />
+      <div className="editor-shell">
+        <CodeMirror
+          key={currentFile}
+          className="editor-shell__cm"
+          value={sourceText}
+          height="100%"
+          extensions={[
+            python(),
+            EditorView.lineWrapping,
+            ...decorationExtensions,
+          ]}
+          onChange={onChange}
+          basicSetup={{
+            lineNumbers: true,
+            highlightActiveLineGutter: true,
+            foldGutter: false,
+          }}
+          onCreateEditor={(view) => {
+            viewRef.current = view;
+          }}
+        />
+      </div>
       {dirty ? (
         <Alert
           style={{ marginTop: 8 }}

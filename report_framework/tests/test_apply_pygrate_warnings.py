@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 HERE = os.path.abspath(os.path.dirname(__file__))
@@ -11,6 +12,7 @@ if REPORT_FRAMEWORK_ROOT not in sys.path:
     sys.path.insert(0, REPORT_FRAMEWORK_ROOT)
 
 import web_frontend
+import framework
 from framework import analyze_file_with_output
 from web_frontend import app
 
@@ -87,6 +89,28 @@ class PygrateWarningFlowTests(unittest.TestCase):
 
         self.assertEqual(warnings, [])
 
+    def test_next_method_warning_still_extracts_call_when_resolver_fails(self):
+        source = "it = iter([1, 2])\nfirst = it.next()\n"
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "sample.py")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(source)
+
+        with mock.patch.object(framework, "_resolve_warning_callsite", return_value=None):
+            warnings, _ = framework.analyze_file_with_output(REPO_ROOT, tmp.name, "sample.py")
+
+        current = [warning for warning in warnings if warning.rel_filename == "sample.py"]
+        payload = web_frontend._serialize_warnings_for_client(current, {"sample.py": source})
+
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["original"], "it.next()")
+        self.assertEqual(payload[0]["fix"], "next(it)")
+
+        preview = self._preview_apply(tmp.name, "sample.py", source, payload)
+        self.assertIn("first = next(it)", preview["sourceText"])
+        self.assertNotIn("next(first = it)", preview["sourceText"])
+
     def test_intern_warning_auto_fix_reuses_existing_import(self):
         source = "import sys\nvalue = intern('abc')\n"
         tmpdir, _, warnings, payload, _ = self._write_and_analyze(source)
@@ -103,6 +127,24 @@ class PygrateWarningFlowTests(unittest.TestCase):
         saved = self._save_and_reanalyze(tmpdir, "sample.py", preview["sourceText"])
         self.assertEqual(saved["warningCount"], 0)
         self.assertNotIn("AttributeError", saved["runOutput"])
+
+    def test_intern_warning_still_extracts_call_when_resolver_fails(self):
+        source = "value = intern('abc')\n"
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "sample.py")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(source)
+
+        with mock.patch.object(framework, "_resolve_warning_callsite", return_value=None):
+            warnings, _ = framework.analyze_file_with_output(REPO_ROOT, tmp.name, "sample.py")
+
+        current = [warning for warning in warnings if warning.rel_filename == "sample.py"]
+        payload = web_frontend._serialize_warnings_for_client(current, {"sample.py": source})
+
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["original"], "intern('abc')")
+        self.assertEqual(payload[0]["fix"], "sys.intern('abc')")
 
     def test_xrange_iteration_rewrites_to_range(self):
         source = "seen = []\nfor x in xrange(3):\n    seen.append(x)\n"

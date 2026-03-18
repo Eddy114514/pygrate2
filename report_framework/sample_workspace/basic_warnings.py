@@ -9,6 +9,15 @@ iter_keys = data.iterkeys()
 iter_values = data.itervalues()
 iter_items = data.iteritems()
 
+data = {"a": 1, "b": 2}
+has_a = data.has_key("a")
+view_keys = data.viewkeys()
+view_values = data.viewvalues()
+view_items = data.viewitems()
+iter_keys = data.iterkeys()
+iter_values = data.itervalues()
+iter_items = data.iteritems()
+
 buf = buffer("abc")
 
 def mycmp(left, right):
@@ -20,4 +29,9 @@ pairs.sort(cmp=mycmp)
 it = iter([1, 2, 3])
 first = it.next()
 
+b = it.next()
+
 cached_name = intern("report-framework")
+
+it = iter([1, 2, 3])
+first = it.next()

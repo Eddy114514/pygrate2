@@ -20,4 +20,9 @@ pairs.sort(cmp=mycmp)
 it = iter([1, 2, 3])
 first = it.next()
 
+b = it.next()
+
 cached_name = intern("report-framework")
+
+it = iter([1, 2, 3])
+first = it.next()

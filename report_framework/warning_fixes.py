@@ -209,6 +209,64 @@ def _resolved_expression(raw: dict, resolved_callsite: dict):
     }
 
 
+def _collect_matching_power_calls(node, pattern, out):
+    if _node_type(node) == "power":
+        text = node.get_code().strip()
+        start = getattr(node, "start_pos", None)
+        end = getattr(node, "end_pos", None)
+        if (
+            pattern.match(text)
+            and start is not None
+            and end is not None
+            and start[0] == end[0]
+        ):
+            out.append(
+                {
+                    "expr_text": text,
+                    "col_start": start[1],
+                    "col_end": end[1],
+                }
+            )
+    for ch in _children(node):
+        _collect_matching_power_calls(ch, pattern, out)
+
+
+def _unique_power_call_match(source_line: str, pattern):
+    if _GRAMMAR27 is None or not source_line:
+        return None
+
+    module = _GRAMMAR27.parse(source_line + "\n")
+    matches = []
+    _collect_matching_power_calls(module, pattern, matches)
+    unique = {}
+    for match in matches:
+        unique[(match["col_start"], match["col_end"])] = match
+    matches = list(unique.values())
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _refine_info_to_named_call(info: dict, callee_name: str):
+    pattern = re.compile(r"^%s\(.*\)$" % re.escape(callee_name))
+    match = _unique_power_call_match(info.get("source_line", ""), pattern)
+    if match is None:
+        return info
+    refined = dict(info)
+    refined.update(match)
+    return refined
+
+
+def _refine_info_to_attr_call(info: dict, attr_name: str):
+    pattern = re.compile(r"^.+\.%s\(\)$" % re.escape(attr_name))
+    match = _unique_power_call_match(info.get("source_line", ""), pattern)
+    if match is None:
+        return info
+    refined = dict(info)
+    refined.update(match)
+    return refined
+
+
 def _build_expression_instance(info: dict, rule: WarningRule, replacement_text=None, required_imports=None, message=None):
     proposal = None
     if replacement_text is not None and not info.get("multiline"):
@@ -292,6 +350,7 @@ def _text_consumer_required(raw: dict, info: dict):
 
 def next_method_builder(raw: dict, resolved_callsite: dict, rule: WarningRule):
     info = _resolved_expression(raw, resolved_callsite)
+    info = _refine_info_to_attr_call(info, "next")
     replacement = None
     expr = info["expr_text"].strip()
     match = re.match(r"(?P<receiver>.+)\.next\(\)$", expr)
@@ -302,6 +361,7 @@ def next_method_builder(raw: dict, resolved_callsite: dict, rule: WarningRule):
 
 def intern_builder(raw: dict, resolved_callsite: dict, rule: WarningRule):
     info = _resolved_expression(raw, resolved_callsite)
+    info = _refine_info_to_named_call(info, "intern")
     replacement = None
     expr = info["expr_text"].strip()
     match = re.match(r"^intern\((?P<arg>.*)\)$", expr)

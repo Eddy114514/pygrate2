@@ -145,11 +145,42 @@ body {
   min-height: 0;
 }
 
-.warning-table .ant-table-wrapper,
-.warning-table .ant-spin-nested-loading,
-.warning-table .ant-spin-container,
-.warning-table .ant-table {
-  height: 100%;
+.pane--warnings {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+.warning-table__container {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+}
+
+.warning-table__container .ant-table-wrapper {
+  min-width: 0;
+}
+
+.warning-table__container::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.warning-table__container::-webkit-scrollbar-thumb {
+  background: rgba(79, 100, 128, 0.35);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+.warning-table__container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.warning-table__container {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(79, 100, 128, 0.45) transparent;
 }
 
 .warning-table__row--selected td {
@@ -470,9 +501,54 @@ body {
   color: #0f766e;
 }
 
-.cm-editor {
+.editor-shell {
   flex: 1;
   min-height: 0;
-  border-radius: 14px;
   overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.editor-shell__cm {
+  height: 100%;
+}
+
+.editor-shell__cm .cm-editor {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editor-shell__cm .cm-scroller {
+  min-height: 0;
+  overflow: auto !important;
+  scrollbar-gutter: stable both-edges;
+}
+
+.editor-shell__cm .cm-content,
+.editor-shell__cm .cm-gutter {
+  min-height: 100%;
+}
+
+.editor-shell__cm .cm-scroller::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.editor-shell__cm .cm-scroller::-webkit-scrollbar-thumb {
+  background: rgba(79, 100, 128, 0.35);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+.editor-shell__cm .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.editor-shell__cm .cm-scroller {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(79, 100, 128, 0.45) transparent;
 }
