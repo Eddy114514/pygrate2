@@ -1,6 +1,8 @@
+import io
 import os
 import re
 import sys
+import tokenize
 
 from apply_engine import build_fix_proposal
 from models.rule_models import WarningRule, method_rename_rule
@@ -156,6 +158,111 @@ def _metadata_bool(raw: dict, key: str):
         if lowered in ("0", "false", "no"):
             return False
     return None
+
+
+def _iter_significant_tokens(line_text: str):
+    try:
+        stream = io.StringIO(line_text).readline
+        for tok in tokenize.generate_tokens(stream):
+            if tok.type in (
+                tokenize.INDENT,
+                tokenize.DEDENT,
+                tokenize.NL,
+                tokenize.NEWLINE,
+                tokenize.ENDMARKER,
+                tokenize.COMMENT,
+            ):
+                continue
+            yield tok
+    except (tokenize.TokenError, IndentationError):
+        return
+
+
+def _token_slice_text(line_text: str, tokens):
+    if not tokens:
+        return ""
+    start = tokens[0].start[1]
+    end = tokens[-1].end[1]
+    return line_text[start:end]
+
+
+def _parse_exec_statement(source_line: str):
+    if not source_line:
+        return None
+
+    tokens = list(_iter_significant_tokens(source_line) or [])
+    if not tokens or tokens[0].string != "exec":
+        return None
+
+    expr_tokens = []
+    globals_tokens = []
+    locals_tokens = []
+    state = "expr"
+    depth = 0
+
+    for tok in tokens[1:]:
+        text = tok.string
+        if tok.type == tokenize.OP and text in "([{":
+            depth += 1
+        elif tok.type == tokenize.OP and text in ")]}":
+            depth = max(0, depth - 1)
+
+        if depth == 0 and tok.type == tokenize.NAME and text == "in" and state == "expr":
+            state = "globals"
+            continue
+        if depth == 0 and tok.type == tokenize.OP and text == "," and state == "globals":
+            state = "locals"
+            continue
+
+        if state == "expr":
+            expr_tokens.append(tok)
+        elif state == "globals":
+            globals_tokens.append(tok)
+        else:
+            locals_tokens.append(tok)
+
+    if not expr_tokens:
+        return None
+    if state != "expr" and not globals_tokens:
+        return None
+    if state == "locals" and not locals_tokens:
+        return None
+
+    tail = locals_tokens or globals_tokens or expr_tokens
+    col_start = tokens[0].start[1]
+    col_end = tail[-1].end[1]
+    return {
+        "statement_text": source_line[col_start:col_end],
+        "col_start": col_start,
+        "col_end": col_end,
+        "expr_text": _token_slice_text(source_line, expr_tokens).strip(),
+        "globals_text": _token_slice_text(source_line, globals_tokens).strip() or None,
+        "locals_text": _token_slice_text(source_line, locals_tokens).strip() or None,
+    }
+
+
+def _exec_statement_info(raw: dict):
+    source_line = raw.get("line", "")
+    parsed = _parse_exec_statement(source_line)
+    if parsed is None:
+        return {
+            "filename": raw["filename"],
+            "lineno": raw["lineno"],
+            "expr_text": source_line,
+            "source_line": source_line,
+            "col_start": 0,
+            "col_end": len(source_line),
+            "multiline": False,
+        }
+    return {
+        "filename": raw["filename"],
+        "lineno": raw["lineno"],
+        "expr_text": parsed["statement_text"],
+        "source_line": source_line,
+        "col_start": parsed["col_start"],
+        "col_end": parsed["col_end"],
+        "multiline": False,
+    }
 
 
 def _resolved_expression(raw: dict, resolved_callsite: dict):
@@ -418,7 +525,59 @@ def base64_text_builder(raw: dict, resolved_callsite: dict, rule: WarningRule):
     return [_build_expression_instance(info, rule, replacement, message=raw.get("message"))]
 
 
+def exec_statement_builder(raw: dict, resolved_callsite: dict, rule: WarningRule):
+    del resolved_callsite
+    parsed = _parse_exec_statement(raw.get("line", ""))
+    info = _exec_statement_info(raw)
+    if parsed is None:
+        return [_build_expression_instance(info, rule, None, message=raw.get("message"))]
+
+    expr_text = parsed["expr_text"]
+    globals_text = parsed["globals_text"]
+    locals_text = parsed["locals_text"]
+
+    replacement = None
+    if globals_text and locals_text:
+        replacement = "exec(%s, %s, %s)" % (expr_text, globals_text, locals_text)
+    elif globals_text:
+        replacement = "exec(%s, %s)" % (expr_text, globals_text)
+    elif expr_text:
+        replacement = "exec(%s)" % expr_text
+
+    return [_build_expression_instance(info, rule, replacement, message=raw.get("message"))]
+
+
+def exec_scope_builder(raw: dict, resolved_callsite: dict, rule: WarningRule):
+    del resolved_callsite
+    return [_build_expression_instance(
+        _exec_statement_info(raw),
+        rule,
+        None,
+        message=raw.get("message"),
+    )]
+
+
 WARNING_RULES = [
+    WarningRule(
+        name="exec_statement",
+        warning_type="EXEC_STATEMENT_WARNING",
+        message_match="exec statement is not supported in 3.x",
+        fix_scope="expression",
+        highlight_mode="exec",
+        instance_builder=exec_statement_builder,
+        regex_grade="B",
+        notes="Uses token-aware parsing for the safe exec-statement subset.",
+    ),
+    WarningRule(
+        name="exec_scope",
+        warning_type="EXEC_SCOPE_WARNING",
+        message_match="exec scope semantics may require manual review in 3.x",
+        fix_scope="expression",
+        highlight_mode="exec",
+        instance_builder=exec_scope_builder,
+        regex_grade="B",
+        notes="Warning-only for now; metadata is preserved for future semantic fixes.",
+    ),
     WarningRule(
         name="next_method",
         warning_type="NEXT_METHOD_WARNING",

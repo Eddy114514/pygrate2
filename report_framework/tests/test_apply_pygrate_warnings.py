@@ -146,6 +146,77 @@ class PygrateWarningFlowTests(unittest.TestCase):
         self.assertEqual(payload[0]["original"], "intern('abc')")
         self.assertEqual(payload[0]["fix"], "sys.intern('abc')")
 
+    def test_exec_statement_rewrites_simple_exec(self):
+        source = 'exec "x = 1"\n'
+        tmpdir, _, warnings, payload, _ = self._write_and_analyze(source)
+
+        self.assertEqual([warning.warning_type for warning in warnings], ["EXEC_STATEMENT_WARNING"])
+        self.assertEqual(payload[0]["metadata"]["warning_type"], "EXEC_STATEMENT_WARNING")
+        self.assertEqual(payload[0]["fix"], 'exec("x = 1")')
+
+        preview = self._preview_apply(tmpdir, "sample.py", source, payload)
+        self.assertIn('exec("x = 1")', preview["sourceText"])
+
+        saved = self._save_and_reanalyze(tmpdir, "sample.py", preview["sourceText"])
+        self.assertEqual(saved["warningCount"], 0)
+
+    def test_exec_statement_rewrites_exec_with_globals(self):
+        source = "code = 'x = 1'\ng = {}\nexec code in g\n"
+        tmpdir, _, warnings, payload, _ = self._write_and_analyze(source)
+
+        self.assertEqual([warning.warning_type for warning in warnings], ["EXEC_STATEMENT_WARNING"])
+        self.assertEqual(payload[0]["fix"], "exec(code, g)")
+
+        preview = self._preview_apply(tmpdir, "sample.py", source, payload)
+        self.assertIn("exec(code, g)", preview["sourceText"])
+
+        saved = self._save_and_reanalyze(tmpdir, "sample.py", preview["sourceText"])
+        self.assertEqual(saved["warningCount"], 0)
+
+    def test_exec_statement_rewrites_exec_with_globals_and_locals(self):
+        source = "code = 'x = 1'\ng = {}\nl = {}\nexec code in g, l\n"
+        tmpdir, _, warnings, payload, _ = self._write_and_analyze(source)
+
+        self.assertEqual([warning.warning_type for warning in warnings], ["EXEC_STATEMENT_WARNING"])
+        self.assertEqual(payload[0]["fix"], "exec(code, g, l)")
+
+        preview = self._preview_apply(tmpdir, "sample.py", source, payload)
+        self.assertIn("exec(code, g, l)", preview["sourceText"])
+
+        saved = self._save_and_reanalyze(tmpdir, "sample.py", preview["sourceText"])
+        self.assertEqual(saved["warningCount"], 0)
+
+    def test_exec_scope_warning_exposes_function_scope_metadata(self):
+        source = (
+            "def run(code, g, l):\n"
+            "    exec code in g, l\n"
+            "    return l\n"
+        )
+        _, _, warnings, payload, _ = self._write_and_analyze(source)
+
+        warning_types = [warning.warning_type for warning in warnings]
+        self.assertIn("EXEC_STATEMENT_WARNING", warning_types)
+        self.assertIn("EXEC_SCOPE_WARNING", warning_types)
+
+        scope_payload = next(item for item in payload if item["type"] == "EXEC_SCOPE_WARNING")
+        self.assertIsNone(scope_payload["proposal"])
+        self.assertEqual(scope_payload["metadata"]["scope_kind"], "function")
+        self.assertTrue(scope_payload["metadata"]["has_explicit_globals"])
+        self.assertTrue(scope_payload["metadata"]["has_explicit_locals"])
+
+    def test_exec_preview_apply_and_save_reanalyze_close_loop(self):
+        source = "code = 'x = 1'\nexec code\n"
+        tmpdir, path, _, payload, _ = self._write_and_analyze(source)
+
+        preview = self._preview_apply(tmpdir, "sample.py", source, payload)
+        self.assertIn("exec(code)", preview["sourceText"])
+
+        saved = self._save_and_reanalyze(tmpdir, "sample.py", preview["sourceText"])
+        self.assertEqual(saved["warningCount"], 0)
+        self.assertEqual(saved["warnings"], [])
+        with open(path, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), preview["sourceText"])
+
     def test_xrange_iteration_rewrites_to_range(self):
         source = "seen = []\nfor x in xrange(3):\n    seen.append(x)\n"
         tmpdir, _, warnings, payload, _ = self._write_and_analyze(source)

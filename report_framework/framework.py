@@ -523,6 +523,17 @@ def analyze_file_with_output(pygrate_root: Optional[str], project_root: str, fil
                 and re.match(r'^\s*print\(', raw["line"])
             ):
             continue
+        # Pygrate2 still parses exec(...) as Exec_kind under Python 2 syntax.
+        # Once the source has been migrated to function-call form, suppress the
+        # warning so preview/save+reanalyze can converge on the migrated text.
+        if (
+            (
+                "exec statement is not supported in 3.x" in raw["message"]
+                or "exec scope semantics may require manual review in 3.x" in raw["message"]
+            )
+            and re.match(r'^\s*exec\(', raw["line"])
+        ):
+            continue
 
         rel_filename = os.path.relpath(abs_filename, abs_root)
         resolved_callsite = _resolve_warning_callsite(raw, abs_filename, pygrate_root)
