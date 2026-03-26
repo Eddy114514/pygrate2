@@ -217,6 +217,59 @@ class PygrateWarningFlowTests(unittest.TestCase):
         with open(path, "r", encoding="utf-8") as f:
             self.assertEqual(f.read(), preview["sourceText"])
 
+    def test_old_style_class_rewrites_simple_class_header(self):
+        source = "class Foo:\n    pass\n"
+        tmpdir, _, warnings, payload, _ = self._write_and_analyze(source)
+
+        self.assertEqual([warning.warning_type for warning in warnings], ["OLD_STYLE_CLASS_WARNING"])
+        self.assertEqual(payload[0]["metadata"]["class_name"], "Foo")
+        self.assertEqual(payload[0]["metadata"]["bases"], [])
+        self.assertTrue(payload[0]["metadata"]["is_classic_class"])
+        self.assertEqual(payload[0]["fix"], "class Foo(object):")
+
+        preview = self._preview_apply(tmpdir, "sample.py", source, payload)
+        self.assertIn("class Foo(object):", preview["sourceText"])
+
+        saved = self._save_and_reanalyze(tmpdir, "sample.py", preview["sourceText"])
+        self.assertEqual(saved["warningCount"], 0)
+
+    def test_new_style_class_object_is_not_reported(self):
+        source = "class Foo(object):\n    pass\n"
+        _, _, warnings, payload, _ = self._write_and_analyze(source)
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(payload, [])
+
+    def test_old_style_class_payload_carries_metadata(self):
+        source = "class Foo:\n    pass\n"
+        _, _, _, payload, _ = self._write_and_analyze(source)
+
+        self.assertEqual(payload[0]["type"], "OLD_STYLE_CLASS_WARNING")
+        self.assertEqual(payload[0]["metadata"]["class_name"], "Foo")
+        self.assertEqual(payload[0]["metadata"]["bases"], [])
+        self.assertTrue(payload[0]["metadata"]["is_classic_class"])
+
+    def test_classic_multiple_inheritance_emits_mro_risk_warning(self):
+        source = (
+            "class A:\n"
+            "    pass\n"
+            "class B:\n"
+            "    pass\n"
+            "class C(A, B):\n"
+            "    pass\n"
+        )
+        _, _, warnings, payload, _ = self._write_and_analyze(source)
+
+        warning_types = [warning.warning_type for warning in warnings]
+        self.assertIn("OLD_STYLE_CLASS_WARNING", warning_types)
+        self.assertIn("MRO_RISK_WARNING", warning_types)
+
+        risk_payload = next(item for item in payload if item["type"] == "MRO_RISK_WARNING")
+        self.assertIsNone(risk_payload["proposal"])
+        self.assertEqual(risk_payload["metadata"]["class_name"], "C")
+        self.assertEqual(risk_payload["metadata"]["bases"], ["A", "B"])
+        self.assertEqual(risk_payload["metadata"]["risk_kind"], "classic_multi_inheritance")
+
     def test_xrange_iteration_rewrites_to_range(self):
         source = "seen = []\nfor x in xrange(3):\n    seen.append(x)\n"
         tmpdir, _, warnings, payload, _ = self._write_and_analyze(source)

@@ -241,6 +241,60 @@ def _parse_exec_statement(source_line: str):
     }
 
 
+def _parse_class_statement(source_line: str):
+    if not source_line:
+        return None
+
+    tokens = list(_iter_significant_tokens(source_line) or [])
+    if len(tokens) < 3 or tokens[0].string != "class" or tokens[1].type != tokenize.NAME:
+        return None
+
+    class_tok = tokens[0]
+    name_tok = tokens[1]
+    idx = 2
+    bases_tokens = []
+    colon_tok = None
+
+    if tokens[idx].string == ":":
+        colon_tok = tokens[idx]
+    elif tokens[idx].string == "(":
+        idx += 1
+        depth = 1
+        while idx < len(tokens):
+            tok = tokens[idx]
+            text = tok.string
+            if tok.type == tokenize.OP and text in "([{":
+                depth += 1
+                bases_tokens.append(tok)
+                idx += 1
+                continue
+            if tok.type == tokenize.OP and text in ")]}":
+                depth -= 1
+                if depth == 0:
+                    idx += 1
+                    break
+                bases_tokens.append(tok)
+                idx += 1
+                continue
+            bases_tokens.append(tok)
+            idx += 1
+        if depth != 0 or idx >= len(tokens) or tokens[idx].string != ":":
+            return None
+        colon_tok = tokens[idx]
+    else:
+        return None
+
+    col_start = class_tok.start[1]
+    col_end = colon_tok.end[1]
+    return {
+        "statement_text": source_line[col_start:col_end],
+        "col_start": col_start,
+        "col_end": col_end,
+        "class_name": name_tok.string,
+        "bases_text": _token_slice_text(source_line, bases_tokens).strip() or None,
+    }
+
+
 def _exec_statement_info(raw: dict):
     source_line = raw.get("line", "")
     parsed = _parse_exec_statement(source_line)
@@ -262,6 +316,34 @@ def _exec_statement_info(raw: dict):
         "col_start": parsed["col_start"],
         "col_end": parsed["col_end"],
         "multiline": False,
+    }
+
+
+def _class_statement_info(raw: dict):
+    source_line = raw.get("line", "")
+    parsed = _parse_class_statement(source_line)
+    if parsed is None:
+        return {
+            "filename": raw["filename"],
+            "lineno": raw["lineno"],
+            "expr_text": source_line,
+            "source_line": source_line,
+            "col_start": 0,
+            "col_end": len(source_line),
+            "multiline": False,
+            "class_name": None,
+            "bases_text": None,
+        }
+    return {
+        "filename": raw["filename"],
+        "lineno": raw["lineno"],
+        "expr_text": parsed["statement_text"],
+        "source_line": source_line,
+        "col_start": parsed["col_start"],
+        "col_end": parsed["col_end"],
+        "multiline": False,
+        "class_name": parsed["class_name"],
+        "bases_text": parsed["bases_text"],
     }
 
 
@@ -557,7 +639,48 @@ def exec_scope_builder(raw: dict, resolved_callsite: dict, rule: WarningRule):
     )]
 
 
+def old_style_class_builder(raw: dict, resolved_callsite: dict, rule: WarningRule):
+    del resolved_callsite
+    info = _class_statement_info(raw)
+    replacement = None
+    class_name = info.get("class_name")
+    bases_text = (info.get("bases_text") or "").strip()
+    if class_name and not bases_text:
+        replacement = "class %s(object):" % class_name
+    return [_build_expression_instance(info, rule, replacement, message=raw.get("message"))]
+
+
+def mro_risk_builder(raw: dict, resolved_callsite: dict, rule: WarningRule):
+    del resolved_callsite
+    return [_build_expression_instance(
+        _class_statement_info(raw),
+        rule,
+        None,
+        message=raw.get("message"),
+    )]
+
+
 WARNING_RULES = [
+    WarningRule(
+        name="old_style_class",
+        warning_type="OLD_STYLE_CLASS_WARNING",
+        message_match="old-style classes are not supported in 3.x",
+        fix_scope="expression",
+        highlight_mode="class",
+        instance_builder=old_style_class_builder,
+        regex_grade="A",
+        notes="Only auto-fixes classic classes that omit explicit bases.",
+    ),
+    WarningRule(
+        name="mro_risk",
+        warning_type="MRO_RISK_WARNING",
+        message_match="classic-class multiple inheritance may change MRO in 3.x",
+        fix_scope="expression",
+        highlight_mode="class",
+        instance_builder=mro_risk_builder,
+        regex_grade="B",
+        notes="Warning-only for classic multiple inheritance; manual review required.",
+    ),
     WarningRule(
         name="exec_statement",
         warning_type="EXEC_STATEMENT_WARNING",

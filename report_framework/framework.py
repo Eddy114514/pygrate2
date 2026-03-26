@@ -39,6 +39,23 @@ HEADER_RE = re.compile(
     r'^(?P<filename>.*?):(?P<lineno>\d+): (?P<category>[^:]+): (?P<msgfix>.*)$'
 )
 METADATA_PREFIX = "[pygrate-meta]"
+_METADATA_DECODER = json.JSONDecoder()
+
+
+def _parse_metadata_payload(payload: str):
+    try:
+        metadata, end = _METADATA_DECODER.raw_decode(payload)
+    except Exception:
+        return None, None
+
+    trailing = payload[end:].strip()
+    fix_text = None
+    if trailing:
+        if trailing.startswith("[fix=") and trailing.endswith("]"):
+            fix_text = trailing[5:-1].strip()
+        elif trailing.startswith(":"):
+            fix_text = trailing[1:].strip()
+    return metadata, fix_text
 
 
 def _load_callsite_resolver():
@@ -91,9 +108,12 @@ def _parse_warning_block(lines: List[str]):
         stripped = extra_line.strip()
         if stripped.startswith(METADATA_PREFIX):
             payload = stripped[len(METADATA_PREFIX):].strip()
-            try:
-                metadata = json.loads(payload)
-            except Exception:
+            parsed_metadata, parsed_fix_text = _parse_metadata_payload(payload)
+            if parsed_metadata is not None:
+                metadata = parsed_metadata
+                if fix_text is None and parsed_fix_text:
+                    fix_text = parsed_fix_text
+            else:
                 metadata = {"raw": payload}
             continue
         if not code_line and extra_line.startswith("  "):
