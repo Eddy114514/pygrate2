@@ -270,6 +270,54 @@ class PygrateWarningFlowTests(unittest.TestCase):
         self.assertEqual(risk_payload["metadata"]["bases"], ["A", "B"])
         self.assertEqual(risk_payload["metadata"]["risk_kind"], "classic_multi_inheritance")
 
+    def test_stringio_from_import_rewrites_to_io_stringio(self):
+        source = "from StringIO import StringIO\nbuf = StringIO()\n"
+        tmpdir, _, warnings, payload, _ = self._write_and_analyze(source)
+
+        self.assertEqual([warning.warning_type for warning in warnings], ["STRINGIO_WARNING"])
+        self.assertEqual(payload[0]["metadata"]["module_name"], "StringIO")
+        self.assertEqual(payload[0]["metadata"]["usage_kind"], "text")
+        self.assertEqual(payload[0]["fix"], "from io import StringIO")
+
+        preview = self._preview_apply(tmpdir, "sample.py", source, payload)
+        self.assertIn("from io import StringIO", preview["sourceText"])
+        self.assertIn("buf = StringIO()", preview["sourceText"])
+
+        saved = self._save_and_reanalyze(tmpdir, "sample.py", preview["sourceText"])
+        self.assertEqual(saved["warningCount"], 0)
+
+    def test_stringio_module_call_rewrites_import_and_constructor(self):
+        source = "import StringIO\nbuf = StringIO.StringIO()\n"
+        tmpdir, _, warnings, payload, _ = self._write_and_analyze(source)
+
+        self.assertEqual([warning.warning_type for warning in warnings], ["STRINGIO_WARNING", "STRINGIO_WARNING"])
+
+        preview = self._preview_apply(tmpdir, "sample.py", source, payload)
+        self.assertIn("import io", preview["sourceText"])
+        self.assertIn("buf = io.StringIO()", preview["sourceText"])
+
+    def test_cstringio_from_import_rewrites_to_bytesio(self):
+        source = "from cStringIO import StringIO\nbuf = StringIO('abc')\n"
+        tmpdir, _, warnings, payload, _ = self._write_and_analyze(source)
+
+        self.assertEqual(
+            [warning.warning_type for warning in warnings],
+            ["CSTRINGIO_WARNING", "CSTRINGIO_WARNING"],
+        )
+        self.assertTrue(all(item["metadata"]["usage_kind"] == "bytes" for item in payload))
+
+        preview = self._preview_apply(tmpdir, "sample.py", source, payload)
+        self.assertIn("from io import BytesIO", preview["sourceText"])
+        self.assertIn("buf = BytesIO('abc')", preview["sourceText"])
+
+    def test_stringio_alias_usage_keeps_warning_without_fix(self):
+        source = "import StringIO as sio\nbuf = sio.StringIO()\n"
+        _, _, warnings, payload, _ = self._write_and_analyze(source)
+
+        self.assertEqual([warning.warning_type for warning in warnings], ["STRINGIO_WARNING"])
+        self.assertEqual(payload[0]["metadata"]["module_name"], "StringIO")
+        self.assertIsNone(payload[0]["proposal"])
+
     def test_xrange_iteration_rewrites_to_range(self):
         source = "seen = []\nfor x in xrange(3):\n    seen.append(x)\n"
         tmpdir, _, warnings, payload, _ = self._write_and_analyze(source)
