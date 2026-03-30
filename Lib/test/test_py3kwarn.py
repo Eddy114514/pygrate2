@@ -221,6 +221,34 @@ class TestPy3KWarnings(unittest.TestCase):
             w.reset()
             self.assertWarning(sorted(lst, cmp), w, expected)
 
+    def test_next_method(self):
+        expected = 'iterator.next() is not supported in 3.x; use __next__() instead'
+        it = iter(range(5))
+        with check_py3k_warnings() as w:
+            self.assertWarning(it.next(), w, expected)
+
+    def test_intern(self):
+        expected = 'intern() is not supported in 3.x: use sys.intern() instead'
+        with check_py3k_warnings() as w:
+            self.assertWarning(intern('pygrate-next-method'), w, expected)
+
+    def test_range_materialization(self):
+        expected = 'range() may require list materialization in 3.x'
+        with check_py3k_warnings() as w:
+            self.assertWarning(range(5) + [5], w, expected)
+
+    def test_xrange_materialization(self):
+        expected = 'xrange() may require list materialization in 3.x'
+        with check_py3k_warnings() as w:
+            items = xrange(5)
+            self.assertWarning(None, w, expected)
+
+    def test_dict_listlike_materialization(self):
+        expected = 'dict.keys() may require list materialization in 3.x'
+        d = {'a': 1, 'b': 2}
+        with check_py3k_warnings() as w:
+            self.assertWarning(d.keys()[0], w, expected)
+
     def test_sys_exc_clear(self):
         expected = 'sys.exc_clear() not supported in 3.x; use except clauses'
         with check_py3k_warnings() as w:
@@ -288,9 +316,10 @@ class TestPy3KWarnings(unittest.TestCase):
         from io import BytesIO
         x = BytesIO(b'AAAAAA')
         expected = "BytesIO.truncate() does not shift the file pointer: use seek(0) before doing truncate(0)"
-        self.assertWarning(x.truncate(0), w, expected)
-        w.reset()
-        self.assertNoWarning(x.truncate(-1), w)
+        with check_py3k_warnings() as w:
+            self.assertWarning(x.truncate(0), w, expected)
+            w.reset()
+            self.assertNoWarning(x.truncate(-1), w)
 
     def test_file_open(self):
         expected = ("The builtin 'file()'/'open()' function is not supported in 3.x, "

@@ -8,6 +8,7 @@
 */
 
 #include "Python.h"
+#include "opcode.h"
 
 
 /* Set a key error with the specified argument, wrapping it in a
@@ -26,6 +27,15 @@ set_key_error(PyObject *arg)
 
 /* Define this out if you don't want conversion statistics on exit. */
 #undef SHOW_CONVERSION_COUNTS
+
+#define WARN_DICT_LISTLIKE(MSG) \
+    do { \
+        int nextop = _Py3kWarn_NextOpcode(); \
+        if ((nextop == BINARY_SUBSCR || nextop == STORE_SUBSCR || \
+                nextop == BINARY_ADD || nextop == INPLACE_ADD) && \
+                PyErr_WarnPy3k((MSG), 1) < 0) \
+            return NULL; \
+    } while (0)
 
 /* See large comment block below.  This must be >= 1. */
 #define PERTURB_SHIFT 5
@@ -1301,6 +1311,8 @@ dict_keys(register PyDictObject *mp)
     PyDictEntry *ep;
     Py_ssize_t mask, n;
 
+    WARN_DICT_LISTLIKE("dict.keys() may require list materialization in 3.x");
+
   again:
     n = mp->ma_used;
     v = PyList_New(n);
@@ -1334,6 +1346,8 @@ dict_values(register PyDictObject *mp)
     register Py_ssize_t i, j;
     PyDictEntry *ep;
     Py_ssize_t mask, n;
+
+    WARN_DICT_LISTLIKE("dict.values() may require list materialization in 3.x");
 
   again:
     n = mp->ma_used;
@@ -1369,6 +1383,8 @@ dict_items(register PyDictObject *mp)
     Py_ssize_t mask;
     PyObject *item, *key, *value;
     PyDictEntry *ep;
+
+    WARN_DICT_LISTLIKE("dict.items() may require list materialization in 3.x");
 
     /* Preallocate the list of tuples, to avoid allocations during
      * the loop over the items, which could trigger GC, which
