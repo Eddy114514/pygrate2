@@ -6,6 +6,7 @@
 #include "node.h"
 #include "code.h"
 #include "eval.h"
+#include "opcode.h"
 
 #include <ctype.h>
 #include <float.h> /* for DBL_MANT_DIG and friends */
@@ -1282,6 +1283,9 @@ builtin_intern(PyObject *self, PyObject *args)
                         "can't intern subclass of string");
         return NULL;
     }
+    if (PyErr_WarnPy3k("intern() is not supported in 3.x: use sys.intern() instead",
+                       1) < 0)
+        return NULL;
     Py_INCREF(s);
     PyString_InternInPlace(&s);
     return s;
@@ -1970,8 +1974,14 @@ builtin_range(PyObject *self, PyObject *args)
     long ilow = 0, ihigh = 0, istep = 1;
     long bign;
     Py_ssize_t i, n;
+    int nextop;
 
     PyObject *v;
+
+    nextop = _Py3kWarn_NextOpcode();
+    if ((nextop == BINARY_ADD || nextop == INPLACE_ADD) &&
+            PyErr_WarnPy3k("range() may require list materialization in 3.x", 1) < 0)
+        return NULL;
 
     if (PyTuple_Size(args) <= 1) {
         if (!PyArg_ParseTuple(args,
