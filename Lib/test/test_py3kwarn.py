@@ -430,6 +430,52 @@ class TestPy3KWarnings(unittest.TestCase):
         base64.b16encode(b'test')
         check_py3k_warnings(expected, UserWarning)
         
+    def assertExecLocalWritebackWarning(self, recorder, local_name):
+        self.assertEqual(len(recorder.warnings), 1)
+        msg = str(recorder.warnings[0].message)
+        self.assertTrue(msg.startswith(
+            "exec() modified local '%s'" % local_name))
+        recorder.reset()
+
+    def test_exec_local_writeback_warning(self):
+        def f_exec(code):
+            b = 42
+            exec code
+            return b
+
+        with check_py3k_warnings() as w:
+            f_exec("b = 99")
+            self.assertExecLocalWritebackWarning(w, "b")
+
+        def f_exec_no_write(code):
+            b = 42
+            exec code
+            return b
+
+        with check_py3k_warnings() as w:
+            f_exec_no_write("print b")
+            self.assertEqual(len(w.warnings), 0)
+
+        def f_exec_overwrite(code):
+            b = 42
+            exec code
+            b = 7
+            return b
+
+        with check_py3k_warnings() as w:
+            f_exec_overwrite("b = 99")
+            self.assertEqual(len(w.warnings), 0)
+
+        def f_exec_explicit(code):
+            b = 42
+            ns = {'b': b}
+            exec code in globals(), ns
+            return b
+
+        with check_py3k_warnings() as w:
+            f_exec_explicit("b = 99")
+            self.assertEqual(len(w.warnings), 0)
+
 
 class TestStdlibRemovals(unittest.TestCase):
 
