@@ -1070,6 +1070,9 @@ hello world
            with warnings.catch_warnings(record=True) as w:
                warnings.filterwarnings('always', category=Py3xWarning)
                def foo(): x = 0; [x for x in [1, 2, 2]]; print(x)
+           with check_py3k_warnings(
+               ("list comprehension rebinds name 'x'", Py3xWarning)):
+               exec "x = 'outer'; ys = [x for x in range(3)]\n" in {}
         def foo(): x = 0; print(x); [x for x in [1, 2, 2]]
         def foo():
             x = 0

@@ -1,6 +1,7 @@
 /* Range object implementation */
 
 #include "Python.h"
+#include "opcode.h"
 
 typedef struct {
     PyObject_HEAD
@@ -67,8 +68,15 @@ range_new(PyTypeObject *type, PyObject *args, PyObject *kw)
     rangeobject *obj;
     long ilow = 0, ihigh = 0, istep = 1;
     unsigned long n;
+    int nextop;
 
-    if (PyErr_WarnPy3k_WithFix("xrange() is not supported in 3.x", "use range() instead", 1) < 0)
+    nextop = _Py3kWarn_NextOpcode();
+    if (nextop == GET_ITER &&
+            PyErr_WarnPy3k_WithFix("xrange() is not supported in 3.x",
+                                   "use range() instead", 1) < 0)
+        return NULL;
+    if (nextop != GET_ITER &&
+            PyErr_WarnPy3k("xrange() may require list materialization in 3.x", 1) < 0)
         return NULL;
 
     if (!_PyArg_NoKeywords("xrange()", kw))

@@ -4857,6 +4857,10 @@ wrap_next(PyObject *self, PyObject *args, void *wrapped)
 
     if (!check_num_args(args, 0))
         return NULL;
+    if (Py_TYPE(self)->tp_iter != NULL &&
+            PyErr_WarnPy3k("iterator.next() is not supported in 3.x; "
+                           "use __next__() instead", 1) < 0)
+        return NULL;
     res = (*func)(self);
     if (res == NULL && !PyErr_Occurred())
         PyErr_SetNone(PyExc_StopIteration);

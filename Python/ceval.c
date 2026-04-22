@@ -19,6 +19,53 @@
 
 #include <ctype.h>
 
+int
+_Py3kWarn_NextOpcode(void)
+{
+    PyFrameObject *frame;
+    char *code;
+    Py_ssize_t n;
+    int offset;
+    int op;
+    int steps;
+
+    frame = PyEval_GetFrame();
+    if (frame == NULL || frame->f_code == NULL)
+        return -1;
+    if (PyString_AsStringAndSize(frame->f_code->co_code, &code, &n) < 0) {
+        PyErr_Clear();
+        return -1;
+    }
+
+    offset = frame->f_lasti;
+    if (offset < 0 || offset >= n)
+        return -1;
+
+    op = (unsigned char)code[offset];
+    offset += 1;
+    if (HAS_ARG(op))
+        offset += 2;
+
+    /* These warnings only care about the immediate consumer of the
+       just-evaluated call result. Looking ahead a handful of opcodes is
+       enough to skip trivial stack setup before we either find a relevant
+       consumer or hit a stop opcode showing the value has already been
+       stored, returned, or discarded. */
+    for (steps = 0; steps < 8 && offset >= 0 && offset < n; steps++) {
+        op = (unsigned char)code[offset];
+        if (op == BINARY_ADD || op == INPLACE_ADD || op == GET_ITER ||
+                op == BINARY_SUBSCR || op == STORE_SUBSCR)
+            return op;
+        if (op == RETURN_VALUE || op == STORE_NAME || op == STORE_FAST ||
+                op == STORE_GLOBAL || op == STORE_ATTR || op == POP_TOP)
+            return -1;
+        offset += 1;
+        if (HAS_ARG(op))
+            offset += 2;
+    }
+    return -1;
+}
+
 #ifndef WITH_TSC
 
 #define READ_TIMESTAMP(var)
