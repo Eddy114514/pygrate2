@@ -1,6 +1,7 @@
 import unittest
 import sys
 from test.test_support import check_py3k_warnings, CleanImport, run_unittest
+from test.script_helper import assert_python_ok
 import warnings
 import base64
 from test import test_support
@@ -430,6 +431,25 @@ class TestPy3KWarnings(unittest.TestCase):
         base64.b16encode(b'test')
         check_py3k_warnings(expected, UserWarning)
         
+    def assertExecLocalWritebackWarning(self, recorder, local_name):
+        self.assertEqual(len(recorder.warnings), 1)
+        msg = str(recorder.warnings[0].message)
+        self.assertTrue(msg.startswith(
+            "exec() modified local '%s'" % local_name))
+        recorder.reset()
+
+    def test_exec_local_writeback_warning(self):
+        rc, out, err = assert_python_ok(
+            "-3",
+            "-c",
+            "def f(code):\n"
+            "    b = 42\n"
+            "    exec code\n"
+            "    return b\n"
+            "f('b = 99')\n")
+        self.assertEqual(rc, 0)
+        self.assertIn("exec() modified local 'b' which is read later", err)
+
 
 class TestStdlibRemovals(unittest.TestCase):
 
