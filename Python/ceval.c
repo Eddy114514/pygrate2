@@ -66,6 +66,171 @@ _Py3kWarn_NextOpcode(void)
     return -1;
 }
 
+static PyObject *exec_local_writeback_map = NULL;
+
+static PyObject *
+_get_exec_local_writeback_map(void)
+{
+    if (exec_local_writeback_map == NULL) {
+        exec_local_writeback_map = PyDict_New();
+    }
+    return exec_local_writeback_map;
+}
+
+static void
+_clear_exec_local_writeback_for_frame(PyFrameObject *f)
+{
+    PyObject *frame_key;
+    PyObject *exc_type, *exc_value, *exc_tb;
+
+    if (exec_local_writeback_map == NULL) {
+        return;
+    }
+    PyErr_Fetch(&exc_type, &exc_value, &exc_tb);
+    frame_key = PyLong_FromVoidPtr(f);
+    if (frame_key == NULL) {
+        PyErr_Clear();
+        PyErr_Restore(exc_type, exc_value, exc_tb);
+        return;
+    }
+    if (PyDict_GetItem(exec_local_writeback_map, frame_key) != NULL &&
+            PyDict_DelItem(exec_local_writeback_map, frame_key) < 0) {
+        PyErr_Clear();
+    }
+    Py_DECREF(frame_key);
+    PyErr_Restore(exc_type, exc_value, exc_tb);
+}
+
+static int
+_warn_exec_local_writeback(PyFrameObject *f, int oparg)
+{
+    PyObject *frame_key = NULL;
+    PyObject *frame_dict = NULL;
+    PyObject *entry = NULL;
+    PyObject *idx = NULL;
+    PyObject *msg = NULL;
+    PyObject *name_obj = NULL;
+    const char *local_name = NULL;
+    int read_lineno = 0;
+    int warn_result;
+
+    if (exec_local_writeback_map == NULL) {
+        return 0;
+    }
+    frame_key = PyLong_FromVoidPtr(f);
+    if (frame_key == NULL) {
+        PyErr_Clear();
+        return 0;
+    }
+    frame_dict = PyDict_GetItem(exec_local_writeback_map, frame_key);
+    if (frame_dict == NULL) {
+        Py_DECREF(frame_key);
+        return 0;
+    }
+    idx = PyInt_FromLong(oparg);
+    if (idx == NULL) {
+        Py_DECREF(frame_key);
+        PyErr_Clear();
+        return 0;
+    }
+    entry = PyDict_GetItem(frame_dict, idx);
+    if (entry == NULL) {
+        Py_DECREF(idx);
+        Py_DECREF(frame_key);
+        return 0;
+    }
+    read_lineno = PyCode_Addr2Line(f->f_code, f->f_lasti);
+    name_obj = PyTuple_GetItem(f->f_code->co_varnames, oparg);
+    if (name_obj != NULL) {
+        local_name = PyString_AsString(name_obj);
+    }
+    else if (local_name == NULL) {
+        local_name = "<local>";
+    }
+    msg = PyString_FromFormat(
+        "exec() modified local '%s' which is read later in the enclosing function; "
+        "in 3.x exec() does not reliably write back to function locals without an explicit locals mapping",
+        local_name);
+    if (msg == NULL) {
+        Py_DECREF(idx);
+        Py_DECREF(frame_key);
+        PyErr_Clear();
+        return 0;
+    }
+
+    warn_result = PyErr_WarnExplicit_WithFix(
+        PyExc_Py3xWarning,
+        PyString_AsString(msg),
+        "use exec(code, globals, locals) with an explicit locals mapping",
+        PyString_AsString(f->f_code->co_filename),
+        read_lineno,
+        NULL,
+        NULL);
+
+    Py_DECREF(msg);
+    if (warn_result < 0) {
+        Py_DECREF(idx);
+        Py_DECREF(frame_key);
+        return -1;
+    }
+
+    if (PyDict_DelItem(frame_dict, idx) < 0) {
+        PyErr_Clear();
+    }
+    Py_DECREF(idx);
+
+    if (PyDict_Size(frame_dict) <= 0 &&
+            PyDict_DelItem(exec_local_writeback_map, frame_key) < 0) {
+        PyErr_Clear();
+    }
+    Py_DECREF(frame_key);
+    return 0;
+}
+
+static void
+_clear_exec_local_writeback_for_local(PyFrameObject *f, int oparg)
+{
+    PyObject *frame_key = NULL;
+    PyObject *frame_dict = NULL;
+    PyObject *idx = NULL;
+    PyObject *exc_type, *exc_value, *exc_tb;
+
+    if (exec_local_writeback_map == NULL) {
+        return;
+    }
+    PyErr_Fetch(&exc_type, &exc_value, &exc_tb);
+    frame_key = PyLong_FromVoidPtr(f);
+    if (frame_key == NULL) {
+        PyErr_Clear();
+        PyErr_Restore(exc_type, exc_value, exc_tb);
+        return;
+    }
+    frame_dict = PyDict_GetItem(exec_local_writeback_map, frame_key);
+    if (frame_dict == NULL) {
+        Py_DECREF(frame_key);
+        PyErr_Restore(exc_type, exc_value, exc_tb);
+        return;
+    }
+    idx = PyInt_FromLong(oparg);
+    if (idx == NULL) {
+        Py_DECREF(frame_key);
+        PyErr_Clear();
+        PyErr_Restore(exc_type, exc_value, exc_tb);
+        return;
+    }
+    if (PyDict_GetItem(frame_dict, idx) != NULL &&
+            PyDict_DelItem(frame_dict, idx) < 0) {
+        PyErr_Clear();
+    }
+    Py_DECREF(idx);
+    if (PyDict_Size(frame_dict) <= 0 &&
+            PyDict_DelItem(exec_local_writeback_map, frame_key) < 0) {
+        PyErr_Clear();
+    }
+    Py_DECREF(frame_key);
+    PyErr_Restore(exc_type, exc_value, exc_tb);
+}
+
 #ifndef WITH_TSC
 
 #define READ_TIMESTAMP(var)
@@ -1273,6 +1438,11 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
         {
             x = GETLOCAL(oparg);
             if (x != NULL) {
+                if (Py_Py3kWarningFlag &&
+                        _warn_exec_local_writeback(f, oparg) < 0) {
+                    err = -1;
+                    break;
+                }
                 Py_INCREF(x);
                 PUSH(x);
                 FAST_DISPATCH();
@@ -1296,6 +1466,9 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
         {
             v = POP();
             SETLOCAL(oparg, v);
+            if (Py_Py3kWarningFlag) {
+                _clear_exec_local_writeback_for_local(f, oparg);
+            }
             FAST_DISPATCH();
         }
 
@@ -2454,6 +2627,9 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
             x = GETLOCAL(oparg);
             if (x != NULL) {
                 SETLOCAL(oparg, NULL);
+                if (Py_Py3kWarningFlag) {
+                    _clear_exec_local_writeback_for_local(f, oparg);
+                }
                 DISPATCH();
             }
             format_exc_check_arg(
@@ -3404,6 +3580,7 @@ fast_yield:
 
     /* pop frame */
 exit_eval_frame:
+    _clear_exec_local_writeback_for_frame(f);
     Py_LeaveRecursiveCall();
     tstate->frame = f->f_back;
 
@@ -5086,6 +5263,12 @@ exec_statement(PyFrameObject *f, PyObject *prog, PyObject *globals,
     int n;
     PyObject *v;
     int plain = 0;
+    int track_exec_writeback = 0;
+    int exec_lineno = 0;
+    int exec_offset = 0;
+    int nlocals = 0;
+    PyObject **before = NULL;
+    int i;
 
     if (PyTuple_Check(prog) && globals == Py_None && locals == Py_None &&
         ((n = PyTuple_Size(prog)) == 2 || n == 3)) {
@@ -5131,6 +5314,25 @@ exec_statement(PyFrameObject *f, PyObject *prog, PyObject *globals,
     }
     if (PyDict_GetItemString(globals, "__builtins__") == NULL)
         PyDict_SetItemString(globals, "__builtins__", f->f_builtins);
+
+    /* Snapshot fast locals for plain exec so later LOAD_FAST warns only
+       about bindings that exec actually wrote back. */
+    if (plain && Py_Py3kWarningFlag &&
+        (f->f_code->co_flags & CO_NEWLOCALS) &&
+        f->f_code->co_nlocals > 0 &&
+        f->f_localsplus != NULL) {
+        nlocals = f->f_code->co_nlocals;
+        before = PyMem_New(PyObject *, nlocals);
+        if (before != NULL) {
+            for (i = 0; i < nlocals; i++) {
+                before[i] = f->f_localsplus[i];
+                Py_XINCREF(before[i]);
+            }
+            track_exec_writeback = 1;
+            exec_offset = f->f_lasti;
+            exec_lineno = PyCode_Addr2Line(f->f_code, exec_offset);
+        }
+    }
     if (PyCode_Check(prog)) {
         if (PyCode_GetNumFree((PyCodeObject *)prog) > 0) {
             PyErr_SetString(PyExc_TypeError,
@@ -5178,6 +5380,67 @@ exec_statement(PyFrameObject *f, PyObject *prog, PyObject *globals,
     }
     if (plain)
         PyFrame_LocalsToFast(f, 0);
+    if (track_exec_writeback && v != NULL) {
+        PyObject *frame_key = NULL;
+        PyObject *frame_dict = NULL;
+        PyObject *map = NULL;
+        for (i = 0; i < nlocals; i++) {
+            PyObject *before_obj = before[i];
+            PyObject *after_obj = f->f_localsplus[i];
+            if (before_obj == after_obj) {
+                continue;
+            }
+            if (frame_key == NULL) {
+                frame_key = PyLong_FromVoidPtr(f);
+                if (frame_key == NULL) {
+                    PyErr_Clear();
+                    break;
+                }
+            }
+            if (map == NULL) {
+                map = _get_exec_local_writeback_map();
+                if (map == NULL) {
+                    PyErr_Clear();
+                    break;
+                }
+            }
+            if (frame_dict == NULL) {
+                frame_dict = PyDict_GetItem(map, frame_key);
+                if (frame_dict == NULL) {
+                    frame_dict = PyDict_New();
+                    if (frame_dict == NULL) {
+                        PyErr_Clear();
+                        break;
+                    }
+                    if (PyDict_SetItem(map, frame_key, frame_dict) < 0) {
+                        PyErr_Clear();
+                        Py_DECREF(frame_dict);
+                        frame_dict = NULL;
+                        break;
+                    }
+                    Py_DECREF(frame_dict);
+                    frame_dict = PyDict_GetItem(map, frame_key);
+                }
+            }
+            if (frame_dict != NULL) {
+                PyObject *idx = PyInt_FromLong(i);
+                PyObject *val = Py_BuildValue("ii", exec_lineno, exec_offset);
+                if (idx == NULL || val == NULL ||
+                        PyDict_SetItem(frame_dict, idx, val) < 0) {
+                    PyErr_Clear();
+                }
+                Py_XDECREF(idx);
+                Py_XDECREF(val);
+            }
+        }
+        Py_XDECREF(frame_key);
+    }
+    if (before != NULL) {
+        for (i = 0; i < nlocals; i++) {
+            Py_XDECREF(before[i]);
+        }
+        PyMem_Free(before);
+    }
     if (v == NULL)
         return -1;
     Py_DECREF(v);
