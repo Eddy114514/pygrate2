@@ -2381,7 +2381,7 @@ warn_implicit_relative_sibling(PyObject *module, const char *imported_name,
     if (from_import) {
         msg = PyString_FromFormat(
             "implicit relative import from '%.200s' resolved to package sibling '%.200s'; "
-            "in 3.x imports are absolute by default and this may resolve differently or fail",
+            "in 3.x imports are absolute by default and this will resolve differently or fail",
             imported_name, resolved_name);
         fix = PyString_FromFormat(
             "use 'from .%.200s import ...' if the package sibling is intended",
@@ -2390,7 +2390,7 @@ warn_implicit_relative_sibling(PyObject *module, const char *imported_name,
     else {
         msg = PyString_FromFormat(
             "implicit relative import of '%.200s' resolved to package sibling '%.200s'; "
-            "in 3.x imports are absolute by default and this may resolve differently or fail",
+            "in 3.x imports are absolute by default and this will resolve differently or fail",
             imported_name, resolved_name);
         fix = PyString_FromFormat(
             "use 'from . import %.200s' if the package sibling is intended",

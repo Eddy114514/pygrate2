@@ -472,7 +472,7 @@ class TestPy3KWarnings(unittest.TestCase):
     def test_import_order_implicit_import_local_sibling(self):
         expected = ("implicit relative import of 'foo' resolved to package "
                     "sibling 'pkg.foo'; in 3.x imports are absolute by "
-                    "default and this may resolve differently or fail: "
+                    "default and this will resolve differently or fail: "
                     "use 'from . import foo' if the package sibling is "
                     "intended")
         self._check_import_order_warning("import foo\n", expected)
@@ -480,7 +480,7 @@ class TestPy3KWarnings(unittest.TestCase):
     def test_import_order_implicit_from_import_local_sibling(self):
         expected = ("implicit relative import from 'foo' resolved to package "
                     "sibling 'pkg.foo'; in 3.x imports are absolute by "
-                    "default and this may resolve differently or fail: "
+                    "default and this will resolve differently or fail: "
                     "use 'from .foo import ...' if the package sibling is "
                     "intended")
         self._check_import_order_warning("from foo import WHO\n", expected)
@@ -488,7 +488,7 @@ class TestPy3KWarnings(unittest.TestCase):
     def test_import_order_implicit_import_stdlib_name_conflict(self):
         expected = ("implicit relative import of 'string' resolved to package "
                     "sibling 'pkg.string'; in 3.x imports are absolute by "
-                    "default and this may resolve differently or fail: "
+                    "default and this will resolve differently or fail: "
                     "use 'from . import string' if the package sibling is "
                     "intended")
         self._check_import_order_warning("import string\n",
