@@ -2236,6 +2236,10 @@ static int mark_miss(char *name);
 static int ensure_fromlist(PyObject *mod, PyObject *fromlist,
                            char *buf, Py_ssize_t buflen, int recursive);
 static PyObject * import_submodule(PyObject *mod, char *name, char *fullname);
+static int warn_implicit_relative_sibling(PyObject *module,
+                                          const char *imported_name,
+                                          const char *package_name,
+                                          int from_import);
 
 /* The Magnum Opus of dotted-name import :-) */
 
@@ -2246,6 +2250,10 @@ import_module_level(char *name, PyObject *globals, PyObject *locals,
     char *buf;
     Py_ssize_t buflen = 0;
     PyObject *parent, *head, *next, *tail;
+    int from_import = 0;
+    int warn_if_relative_sibling = 0;
+    char package_name[MAXPATHLEN + 1];
+    char imported_name[MAXPATHLEN + 1];
 
     if (strchr(name, '/') != NULL
 #ifdef MS_WINDOWS
@@ -2264,6 +2272,13 @@ import_module_level(char *name, PyObject *globals, PyObject *locals,
     parent = get_parent(globals, buf, &buflen, level);
     if (parent == NULL)
         goto error_exit;
+
+    if (level < 0 && parent != Py_None && strchr(name, '.') == NULL &&
+        buflen < sizeof(package_name) && strlen(name) < sizeof(imported_name)) {
+        strcpy(package_name, buf);
+        strcpy(imported_name, name);
+        warn_if_relative_sibling = 1;
+    }
 
     Py_INCREF(parent);
     head = load_next(parent, level < 0 ? Py_None : parent, &name, buf,
@@ -2303,6 +2318,17 @@ import_module_level(char *name, PyObject *globals, PyObject *locals,
         }
         if (!b)
             fromlist = NULL;
+        else
+            from_import = 1;
+    }
+
+    if (warn_if_relative_sibling) {
+        if (warn_implicit_relative_sibling(head, imported_name,
+                                           package_name, from_import) < 0) {
+            Py_DECREF(tail);
+            Py_DECREF(head);
+            goto error_exit;
+        }
     }
 
     if (fromlist == NULL) {
@@ -2323,6 +2349,65 @@ import_module_level(char *name, PyObject *globals, PyObject *locals,
 error_exit:
     PyMem_FREE(buf);
     return NULL;
+}
+
+static int
+warn_implicit_relative_sibling(PyObject *module, const char *imported_name,
+                               const char *package_name, int from_import)
+{
+    PyObject *msg = NULL;
+    PyObject *fix = NULL;
+    const char *resolved_name;
+    size_t package_name_len;
+    int result;
+
+    if (!Py_Py3kWarningFlag || module == NULL || !PyModule_Check(module))
+        return 0;
+    if (imported_name == NULL || package_name == NULL)
+        return 0;
+
+    resolved_name = PyModule_GetName(module);
+    if (resolved_name == NULL) {
+        PyErr_Clear();
+        return 0;
+    }
+
+    package_name_len = strlen(package_name);
+    if (strncmp(resolved_name, package_name, package_name_len) != 0 ||
+        resolved_name[package_name_len] != '.' ||
+        strcmp(resolved_name + package_name_len + 1, imported_name) != 0)
+        return 0;
+
+    if (from_import) {
+        msg = PyString_FromFormat(
+            "implicit relative import from '%.200s' resolved to package sibling '%.200s'; "
+            "in 3.x imports are absolute by default and this may resolve differently or fail",
+            imported_name, resolved_name);
+        fix = PyString_FromFormat(
+            "use 'from .%.200s import ...' if the package sibling is intended",
+            imported_name);
+    }
+    else {
+        msg = PyString_FromFormat(
+            "implicit relative import of '%.200s' resolved to package sibling '%.200s'; "
+            "in 3.x imports are absolute by default and this may resolve differently or fail",
+            imported_name, resolved_name);
+        fix = PyString_FromFormat(
+            "use 'from . import %.200s' if the package sibling is intended",
+            imported_name);
+    }
+    if (msg == NULL || fix == NULL) {
+        Py_XDECREF(msg);
+        Py_XDECREF(fix);
+        return -1;
+    }
+
+    result = PyErr_WarnEx_WithFix(PyExc_DeprecationWarning,
+                                  PyString_AsString(msg),
+                                  PyString_AsString(fix), 1);
+    Py_DECREF(msg);
+    Py_DECREF(fix);
+    return result;
 }
 
 PyObject *

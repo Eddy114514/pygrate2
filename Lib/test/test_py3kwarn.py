@@ -1,9 +1,11 @@
 import unittest
 import sys
+import os
 from test.test_support import check_py3k_warnings, CleanImport, run_unittest
 import warnings
 import base64
 from test import test_support
+from test import script_helper
 
 if not sys.py3kwarning:
     raise unittest.SkipTest('%s must be run with the -3 flag' % __name__)
@@ -40,6 +42,43 @@ class TestPy3KWarnings(unittest.TestCase):
 
     def assertNoWarning(self, _, recorder):
         self.assertEqual(len(recorder.warnings), 0)
+
+    def _write_file(self, path, contents):
+        with open(path, 'w') as f:
+            f.write(contents)
+
+    def _check_import_order_warning(self, importer_source, expected_message=None,
+                                    imported_name='foo',
+                                    top_source="WHO = 'TOP_LEVEL_FOO'\n",
+                                    sibling_source="WHO = 'PKG_FOO'\n",
+                                    package=True):
+        with test_support.temp_dir() as tmp:
+            if top_source is not None:
+                self._write_file(os.path.join(tmp, imported_name + '.py'),
+                                 top_source)
+
+            if package:
+                pkg_dir = os.path.join(tmp, 'pkg')
+                os.mkdir(pkg_dir)
+                self._write_file(os.path.join(pkg_dir, '__init__.py'), '')
+                if sibling_source is not None:
+                    self._write_file(os.path.join(pkg_dir, imported_name + '.py'),
+                                     sibling_source)
+                import_target = 'pkg.importer'
+                importer_path = os.path.join(pkg_dir, 'importer.py')
+            else:
+                import_target = 'importer'
+                importer_path = os.path.join(tmp, 'importer.py')
+
+            self._write_file(importer_path, importer_source)
+            rc, out, err = script_helper.assert_python_ok(
+                '-S', '-3', '-c', 'import %s' % import_target, PYTHONPATH=tmp)
+            self.assertEqual(rc, 0)
+            self.assertEqual(out, '')
+            if expected_message is None:
+                self.assertNotIn('implicit relative import', err)
+            else:
+                self.assertEqual(err.count(expected_message), 1)
 
     def test_backquote(self):
         expected = 'backquote not supported in 3.x; use repr()'
@@ -429,6 +468,48 @@ class TestPy3KWarnings(unittest.TestCase):
         expected = "base64.b16encode returns str in Python 2 (bytes in 3.x)"
         base64.b16encode(b'test')
         check_py3k_warnings(expected, UserWarning)
+
+    def test_import_order_implicit_import_local_sibling(self):
+        expected = ("implicit relative import of 'foo' resolved to package "
+                    "sibling 'pkg.foo'; in 3.x imports are absolute by "
+                    "default and this may resolve differently or fail: "
+                    "use 'from . import foo' if the package sibling is "
+                    "intended")
+        self._check_import_order_warning("import foo\n", expected)
+
+    def test_import_order_implicit_from_import_local_sibling(self):
+        expected = ("implicit relative import from 'foo' resolved to package "
+                    "sibling 'pkg.foo'; in 3.x imports are absolute by "
+                    "default and this may resolve differently or fail: "
+                    "use 'from .foo import ...' if the package sibling is "
+                    "intended")
+        self._check_import_order_warning("from foo import WHO\n", expected)
+
+    def test_import_order_implicit_import_stdlib_name_conflict(self):
+        expected = ("implicit relative import of 'string' resolved to package "
+                    "sibling 'pkg.string'; in 3.x imports are absolute by "
+                    "default and this may resolve differently or fail: "
+                    "use 'from . import string' if the package sibling is "
+                    "intended")
+        self._check_import_order_warning("import string\n",
+                                         expected_message=expected,
+                                         imported_name='string',
+                                         top_source=None,
+                                         sibling_source="WHO = 'PKG_STRING'\n")
+
+    def test_import_order_future_absolute_import_is_not_warned(self):
+        self._check_import_order_warning(
+            "from __future__ import absolute_import\nimport foo\n")
+
+    def test_import_order_explicit_relative_import_is_not_warned(self):
+        self._check_import_order_warning(
+            "from __future__ import absolute_import\nfrom . import foo\n")
+
+    def test_import_order_top_level_script_is_not_warned(self):
+        self._check_import_order_warning("import foo\n", package=False)
+
+    def test_import_order_absolute_import_without_sibling_is_not_warned(self):
+        self._check_import_order_warning("import foo\n", sibling_source=None)
         
 
 class TestStdlibRemovals(unittest.TestCase):
