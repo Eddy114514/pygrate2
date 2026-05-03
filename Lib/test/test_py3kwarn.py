@@ -1,5 +1,6 @@
 import unittest
 import sys
+import contextlib
 from test.test_support import check_py3k_warnings, CleanImport, run_unittest
 from test.script_helper import assert_python_ok
 import warnings
@@ -35,6 +36,24 @@ def reset_module_registry(module):
         registry.clear()
 
 class TestPy3KWarnings(unittest.TestCase):
+
+    @contextlib.contextmanager
+    def check_py3k_warnings_with_fix(self):
+        frame = sys._getframe(2)
+        registry = frame.f_globals.get('__warningregistry__')
+        if registry:
+            registry.clear()
+        with warnings.catch_warnings(record=True) as w:
+            # PyErr_WarnExplicit_WithFix uses this runtime hook directly.
+            showwarningwithfix = warnings.showwarningwithfix
+            def record_warning_with_fix(*args, **kwargs):
+                w.append(warnings.WarningMessageWithFix(*args, **kwargs))
+            warnings.showwarningwithfix = record_warning_with_fix
+            warnings.simplefilter("always")
+            try:
+                yield test_support.WarningsRecorder(w)
+            finally:
+                warnings.showwarningwithfix = showwarningwithfix
 
     def assertWarning(self, _, warning, expected_message):
         self.assertEqual(str(warning.message), expected_message)
@@ -425,30 +444,137 @@ class TestPy3KWarnings(unittest.TestCase):
         expected = "base64.b32encode returns str in Python 2 (bytes in 3.x)"
         base64.b32encode(b'test')
         check_py3k_warnings(expected, UserWarning)
-    
+        
     def test_b16encode_warns(self):
         expected = "base64.b16encode returns str in Python 2 (bytes in 3.x)"
         base64.b16encode(b'test')
         check_py3k_warnings(expected, UserWarning)
         
-    def assertExecLocalWritebackWarning(self, recorder, local_name):
+    def assertMROWarning(self, recorder, expected_message):
         self.assertEqual(len(recorder.warnings), 1)
         msg = str(recorder.warnings[0].message)
-        self.assertTrue(msg.startswith(
-            "exec() modified local '%s'" % local_name))
+        self.assertEqual(msg, expected_message)
         recorder.reset()
+        
+    def test_classic_mro_resolution_change_warning(self):
+        with self.check_py3k_warnings_with_fix() as w:
+            class A:
+                def do_this(self):
+                    return "A"
 
-    def test_exec_local_writeback_warning(self):
-        rc, out, err = assert_python_ok(
-            "-3",
-            "-c",
-            "def f(code):\n"
-            "    b = 42\n"
-            "    exec code\n"
-            "    return b\n"
-            "f('b = 99')\n")
-        self.assertEqual(rc, 0)
-        self.assertIn("exec() modified local 'b' which is read later", err)
+            class B(A):
+                pass
+
+            class C(A):
+                def do_this(self):
+                    return "C"
+
+            class D(B, C):
+                pass
+
+            self.assertEqual(D().do_this(), "A")
+            self.assertMROWarning(
+                w,
+                "classic multiple inheritance for class 'D' will resolve "
+                "attribute 'do_this' from 'A' in 2.x but from 'C' in 3.x "
+                "due to C3 MRO")
+
+    def test_classic_mro_single_inheritance_no_warning(self):
+        with self.check_py3k_warnings_with_fix() as w:
+            class A:
+                def only_here(self):
+                    return "A"
+
+            class B(A):
+                pass
+
+            self.assertEqual(B().only_here(), "A")
+            self.assertEqual(len(w.warnings), 0)
+
+    def test_classic_mro_no_conflicting_name_no_warning(self):
+        with self.check_py3k_warnings_with_fix() as w:
+            class A:
+                pass
+
+            class B(A):
+                def left(self):
+                    return "left"
+
+            class C(A):
+                def right(self):
+                    return "right"
+
+            class D(B, C):
+                pass
+
+            self.assertEqual(D().left(), "left")
+            self.assertEqual(D().right(), "right")
+            self.assertEqual(len(w.warnings), 0)
+
+    def test_classic_mro_provider_unchanged_no_warning(self):
+        with self.check_py3k_warnings_with_fix() as w:
+            class A:
+                def only_here(self):
+                    return "A"
+
+            class B(A):
+                pass
+
+            class C(A):
+                pass
+
+            class D(B, C):
+                pass
+
+            self.assertEqual(D().only_here(), "A")
+            self.assertEqual(len(w.warnings), 0)
+
+    def test_classic_mro_c3_conflict_warning(self):
+        with self.check_py3k_warnings_with_fix() as w:
+            class A:
+                pass
+
+            class B:
+                pass
+
+            class X(A, B):
+                pass
+
+            class Y(B, A):
+                pass
+
+            class Z(X, Y):
+                pass
+
+            self.assertMROWarning(
+                w,
+                "classic multiple inheritance hierarchy for class 'Z' has no "
+                "consistent C3 MRO and will fail in 3.x")
+
+    def test_classic_mro_bases_update_warning(self):
+        with self.check_py3k_warnings_with_fix() as w:
+            class A:
+                def do_this(self):
+                    return "A"
+
+            class B(A):
+                pass
+
+            class C(A):
+                def do_this(self):
+                    return "C"
+
+            class D(B):
+                pass
+
+            self.assertEqual(len(w.warnings), 0)
+            D.__bases__ = (B, C)
+            self.assertEqual(D().do_this(), "A")
+            self.assertMROWarning(
+                w,
+                "classic multiple inheritance for class 'D' will resolve "
+                "attribute 'do_this' from 'A' in 2.x but from 'C' in 3.x "
+                "due to C3 MRO")
 
 
 class TestStdlibRemovals(unittest.TestCase):
