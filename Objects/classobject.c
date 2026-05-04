@@ -2,6 +2,7 @@
 /* Class object implementation */
 
 #include "Python.h"
+#include "frameobject.h"
 #include "structmember.h"
 
 /* Free list for method objects to save malloc/free overhead
@@ -23,6 +24,473 @@ static PyObject *instance_getattr1(PyInstanceObject *, PyObject *);
 static PyObject *instance_getattr2(PyInstanceObject *, PyObject *);
 
 static PyObject *getattrstr, *setattrstr, *delattrstr;
+
+/* MRO warning helpers */
+static int
+warn_classic_mro_risk(PyClassObject *klass);
+
+static PyObject *
+classic_mro_list(PyClassObject *klass);
+
+static PyObject *
+hypothetical_c3_mro(PyClassObject *klass, int *merge_conflicted);
+
+
+/* ---------- classic MRO / C3 risk analysis ---------- */
+
+static int
+mro_noise_name(PyObject *name)
+{
+    char *s;
+    if (name == NULL || !PyString_Check(name))
+        return 1;
+    s = PyString_AS_STRING(name);
+    return (
+        strcmp(s, "__module__") == 0 ||
+        strcmp(s, "__doc__") == 0 ||
+        strcmp(s, "__name__") == 0 ||
+        strcmp(s, "__dict__") == 0 ||
+        strcmp(s, "__weakref__") == 0
+    );
+}
+
+static char *
+class_name_cstr(PyClassObject *klass)
+{
+    if (klass != NULL && klass->cl_name != NULL &&
+        PyString_Check(klass->cl_name))
+        return PyString_AS_STRING(klass->cl_name);
+    return "?";
+}
+
+static int
+list_contains_ptr(PyObject *list, PyObject *obj)
+{
+    Py_ssize_t i, n;
+    n = PyList_GET_SIZE(list);
+    for (i = 0; i < n; i++) {
+        if (PyList_GET_ITEM(list, i) == obj)
+            return 1;
+    }
+    return 0;
+}
+
+static int
+list_append_unique_ptr(PyObject *list, PyObject *obj)
+{
+    if (list_contains_ptr(list, obj))
+        return 0;
+    return PyList_Append(list, obj);
+}
+
+static int
+classic_mro_dfs(PyClassObject *klass, PyObject *out)
+{
+    Py_ssize_t i, n;
+    if (list_append_unique_ptr(out, (PyObject *)klass) < 0)
+        return -1;
+
+    n = PyTuple_GET_SIZE(klass->cl_bases);
+    for (i = 0; i < n; i++) {
+        PyObject *base = PyTuple_GET_ITEM(klass->cl_bases, i);
+        if (!PyClass_Check(base))
+            continue;
+        if (classic_mro_dfs((PyClassObject *)base, out) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+static PyObject *
+classic_mro_list(PyClassObject *klass)
+{
+    PyObject *out = PyList_New(0);
+    if (out == NULL)
+        return NULL;
+    if (classic_mro_dfs(klass, out) < 0) {
+        Py_DECREF(out);
+        return NULL;
+    }
+    return out;
+}
+
+static int
+c3_head_in_tails(PyObject *seqs, PyObject *candidate)
+{
+    Py_ssize_t i, j, nseqs;
+    nseqs = PyList_GET_SIZE(seqs);
+    for (i = 0; i < nseqs; i++) {
+        PyObject *seq = PyList_GET_ITEM(seqs, i);
+        Py_ssize_t n = PyList_GET_SIZE(seq);
+        for (j = 1; j < n; j++) {
+            if (PyList_GET_ITEM(seq, j) == candidate)
+                return 1;
+        }
+    }
+    return 0;
+}
+
+static PyObject *
+c3_merge(PyObject *seqs, int *merge_conflicted)
+{
+    PyObject *result = NULL;
+    int selected_head = 1;
+
+    result = PyList_New(0);
+    if (result == NULL)
+        return NULL;
+
+    while (selected_head) {
+        Py_ssize_t i, nseqs;
+        int has_pending_sequences = 0;
+
+        /* No selected head in a pass means the C3 constraints conflict. */
+        selected_head = 0;
+        nseqs = PyList_GET_SIZE(seqs);
+
+        for (i = 0; i < nseqs; i++) {
+            PyObject *seq = PyList_GET_ITEM(seqs, i);
+            Py_ssize_t n = PyList_GET_SIZE(seq);
+            PyObject *cand;
+
+            if (n == 0)
+                continue;
+
+            has_pending_sequences = 1;
+            cand = PyList_GET_ITEM(seq, 0);
+
+            if (!c3_head_in_tails(seqs, cand)) {
+                Py_ssize_t j;
+                if (PyList_Append(result, cand) < 0) {
+                    Py_DECREF(result);
+                    return NULL;
+                }
+                for (j = 0; j < nseqs; j++) {
+                    PyObject *s = PyList_GET_ITEM(seqs, j);
+                    if (PyList_GET_SIZE(s) > 0 &&
+                        PyList_GET_ITEM(s, 0) == cand &&
+                        PySequence_DelItem(s, 0) < 0) {
+                        Py_DECREF(result);
+                        return NULL;
+                    }
+                }
+                selected_head = 1;
+                break;
+            }
+        }
+
+        if (!has_pending_sequences)
+            return result;
+
+        if (!selected_head) {
+            if (merge_conflicted != NULL)
+                *merge_conflicted = 1;
+            Py_DECREF(result);
+            return NULL;
+        }
+    }
+
+    return result;
+}
+
+static PyObject *
+hypothetical_c3_mro(PyClassObject *klass, int *merge_conflicted)
+{
+    PyObject *result = NULL;
+    PyObject *seqs = NULL;
+    PyObject *bases_list = NULL;
+    PyObject *merged = NULL;
+    Py_ssize_t i, n;
+
+    result = PyList_New(0);
+    if (result == NULL)
+        goto error;
+
+    if (PyList_Append(result, (PyObject *)klass) < 0)
+        goto error;
+
+    seqs = PyList_New(0);
+    if (seqs == NULL)
+        goto error;
+
+    bases_list = PyList_New(0);
+    if (bases_list == NULL)
+        goto error;
+
+    n = PyTuple_GET_SIZE(klass->cl_bases);
+    for (i = 0; i < n; i++) {
+        PyObject *base = PyTuple_GET_ITEM(klass->cl_bases, i);
+        PyObject *base_mro;
+
+        if (!PyClass_Check(base))
+            continue;
+
+        if (PyList_Append(bases_list, base) < 0)
+            goto error;
+
+        base_mro = hypothetical_c3_mro((PyClassObject *)base,
+                                       merge_conflicted);
+        if (base_mro == NULL)
+            goto error;
+
+        if (PyList_Append(seqs, base_mro) < 0) {
+            Py_DECREF(base_mro);
+            goto error;
+        }
+        Py_DECREF(base_mro);
+    }
+
+    if (PyList_Append(seqs, bases_list) < 0)
+        goto error;
+
+    merged = c3_merge(seqs, merge_conflicted);
+    if (merged == NULL)
+        goto error;
+
+    n = PyList_GET_SIZE(merged);
+    for (i = 0; i < n; i++) {
+        PyObject *item = PyList_GET_ITEM(merged, i);
+        if (PyList_Append(result, item) < 0)
+            goto error;
+    }
+
+    Py_DECREF(merged);
+    Py_DECREF(bases_list);
+    Py_DECREF(seqs);
+    return result;
+
+error:
+    Py_XDECREF(merged);
+    Py_XDECREF(bases_list);
+    Py_XDECREF(seqs);
+    Py_XDECREF(result);
+    return NULL;
+}
+
+static PyClassObject *
+c3_provider_for_name(PyObject *c3_mro, PyObject *name)
+{
+    Py_ssize_t i, n;
+    n = PyList_GET_SIZE(c3_mro);
+    for (i = 0; i < n; i++) {
+        PyClassObject *cp = (PyClassObject *)PyList_GET_ITEM(c3_mro, i);
+        if (PyDict_GetItem(cp->cl_dict, name) != NULL)
+            return cp;
+    }
+    return NULL;
+}
+
+static PyObject *
+duplicate_candidate_names(PyObject *classic_mro)
+{
+    PyObject *seen_names = NULL, *duplicate_names = NULL, *keys = NULL;
+    Py_ssize_t i, n;
+
+    seen_names = PyDict_New();
+    duplicate_names = PyDict_New();
+    if (seen_names == NULL || duplicate_names == NULL)
+        goto error;
+
+    n = PyList_GET_SIZE(classic_mro);
+    for (i = 0; i < n; i++) {
+        PyClassObject *cp = (PyClassObject *)PyList_GET_ITEM(classic_mro, i);
+        Py_ssize_t pos = 0;
+        PyObject *k, *v;
+
+        while (PyDict_Next(cp->cl_dict, &pos, &k, &v)) {
+            int name_already_seen;
+
+            if (mro_noise_name(k))
+                continue;
+
+            name_already_seen = PyDict_Contains(seen_names, k);
+            if (name_already_seen < 0)
+                goto error;
+
+            if (name_already_seen &&
+                PyDict_SetItem(duplicate_names, k, Py_True) < 0)
+                goto error;
+            else if (!name_already_seen &&
+                     PyDict_SetItem(seen_names, k, Py_True) < 0)
+                goto error;
+        }
+    }
+
+    keys = PyDict_Keys(duplicate_names);
+    if (keys == NULL)
+        goto error;
+    if (PyList_Sort(keys) < 0)
+        goto error;
+
+    Py_DECREF(seen_names);
+    Py_DECREF(duplicate_names);
+    return keys;
+
+error:
+    Py_XDECREF(keys);
+    Py_XDECREF(seen_names);
+    Py_XDECREF(duplicate_names);
+    return NULL;
+}
+
+static int
+warn_mro_resolution_change(PyClassObject *klass,
+                           PyObject *name,
+                           PyClassObject *classic_provider,
+                           PyClassObject *c3_provider)
+{
+    PyFrameObject *f = PyEval_GetFrame();
+    const char *filename = "<string>";
+    int lineno = 0;
+    PyObject *msg = NULL;
+    int rc;
+
+    if (f != NULL && f->f_code != NULL &&
+        f->f_code->co_filename != NULL &&
+        PyString_Check(f->f_code->co_filename)) {
+        filename = PyString_AS_STRING(f->f_code->co_filename);
+        lineno = PyCode_Addr2Line(f->f_code, f->f_lasti);
+    }
+
+    msg = PyString_FromFormat(
+        "classic multiple inheritance for class '%s' will resolve attribute '%s' "
+        "from '%s' in 2.x but from '%s' in 3.x due to C3 MRO",
+        class_name_cstr(klass),
+        PyString_AsString(name),
+        class_name_cstr(classic_provider),
+        class_name_cstr(c3_provider));
+    if (msg == NULL)
+        goto error;
+
+    rc = PyErr_WarnExplicit_WithFix(
+        PyExc_Py3xWarning,
+        PyString_AsString(msg),
+        "make the hierarchy new-style and review the conflicting attribute resolution",
+        filename,
+        lineno,
+        NULL,
+        NULL);
+
+    Py_DECREF(msg);
+    return rc;
+
+error:
+    Py_XDECREF(msg);
+    return -1;
+}
+
+static int
+warn_mro_c3_conflict(PyClassObject *klass)
+{
+    PyFrameObject *f = PyEval_GetFrame();
+    const char *filename = "<string>";
+    int lineno = 0;
+    PyObject *msg = NULL;
+    int rc;
+
+    if (f != NULL && f->f_code != NULL &&
+        f->f_code->co_filename != NULL &&
+        PyString_Check(f->f_code->co_filename)) {
+        filename = PyString_AS_STRING(f->f_code->co_filename);
+        lineno = PyCode_Addr2Line(f->f_code, f->f_lasti);
+    }
+
+    msg = PyString_FromFormat(
+        "classic multiple inheritance hierarchy for class '%s' has no "
+        "consistent C3 MRO and will fail in 3.x",
+        class_name_cstr(klass));
+    if (msg == NULL)
+        goto error;
+
+    rc = PyErr_WarnExplicit_WithFix(
+        PyExc_Py3xWarning,
+        PyString_AsString(msg),
+        "make the hierarchy new-style and resolve the inconsistent base ordering",
+        filename,
+        lineno,
+        NULL,
+        NULL);
+
+    Py_DECREF(msg);
+    return rc;
+
+error:
+    Py_XDECREF(msg);
+    return -1;
+}
+
+static int
+warn_classic_mro_risk(PyClassObject *klass)
+{
+    PyObject *classic_mro = NULL;
+    PyObject *c3_mro = NULL;
+    PyObject *candidates = NULL;
+    Py_ssize_t i, n;
+    /* Keep C3 conflicts separate from ordinary allocation/lookup errors. */
+    int c3_merge_conflicted = 0;
+
+    if (!Py_Py3kWarningFlag)
+        return 0;
+
+    if (klass == NULL)
+        return 0;
+
+    if (PyTuple_GET_SIZE(klass->cl_bases) < 2)
+        return 0;
+
+    classic_mro = classic_mro_list(klass);
+    if (classic_mro == NULL)
+        goto error;
+
+    c3_mro = hypothetical_c3_mro(klass, &c3_merge_conflicted);
+    if (c3_mro == NULL) {
+        if (c3_merge_conflicted) {
+            int rc = warn_mro_c3_conflict(klass);
+            Py_DECREF(classic_mro);
+            return rc;
+        }
+        goto error;
+    }
+
+    candidates = duplicate_candidate_names(classic_mro);
+    if (candidates == NULL)
+        goto error;
+
+    n = PyList_GET_SIZE(candidates);
+    for (i = 0; i < n; i++) {
+        PyObject *name = PyList_GET_ITEM(candidates, i);
+        PyClassObject *classic_provider = NULL;
+        PyClassObject *c3_provider = NULL;
+
+        if (class_lookup(klass, name, &classic_provider) == NULL)
+            continue;
+        c3_provider = c3_provider_for_name(c3_mro, name);
+
+        if (classic_provider != NULL &&
+            c3_provider != NULL &&
+            classic_provider != c3_provider) {
+            int rc = warn_mro_resolution_change(
+                klass, name, classic_provider, c3_provider);
+            Py_DECREF(classic_mro);
+            Py_DECREF(c3_mro);
+            Py_DECREF(candidates);
+            return rc;
+        }
+    }
+
+    Py_DECREF(classic_mro);
+    Py_DECREF(c3_mro);
+    Py_DECREF(candidates);
+    return 0;
+
+error:
+    Py_XDECREF(classic_mro);
+    Py_XDECREF(c3_mro);
+    Py_XDECREF(candidates);
+    return -1;
+}
+
+/* ---------- end classic MRO / C3 risk analysis ---------- */
 
 
 PyObject *
@@ -132,6 +600,12 @@ alloc_error:
     Py_XINCREF(op->cl_setattr);
     Py_XINCREF(op->cl_delattr);
     _PyObject_GC_TRACK(op);
+
+    if (warn_classic_mro_risk(op) < 0) {
+        Py_DECREF(op);
+        return NULL;
+    }
+
     return (PyObject *) op;
 }
 
@@ -353,8 +827,14 @@ class_setattr(PyClassObject *op, PyObject *name, PyObject *v)
             char *err = NULL;
             if (strcmp(sname, "__dict__") == 0)
                 err = set_dict(op, v);
-            else if (strcmp(sname, "__bases__") == 0)
+            else if (strcmp(sname, "__bases__") == 0) {
                 err = set_bases(op, v);
+                if (err != NULL && *err == '\0') {
+                    if (warn_classic_mro_risk(op) < 0)
+                        return -1;
+                    return 0;
+                }
+            }
             else if (strcmp(sname, "__name__") == 0)
                 err = set_name(op, v);
             else if (strcmp(sname, "__getattr__") == 0)
