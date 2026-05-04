@@ -32,8 +32,55 @@ try:
     from errno import EINVAL
 except ImportError:
     EINVAL = 22
+import sys
+from warnings import warn_explicit_with_fix
 
 __all__ = ["StringIO"]
+
+
+def _warn_stringio_constructor():
+    if not getattr(sys, "py3kwarning", False):
+        return
+
+    try:
+        caller = sys._getframe(2)
+    except ValueError:
+        caller = None
+
+    if caller is None:
+        filename = __file__
+        lineno = 1
+        module = __name__
+        registry = globals().setdefault("__warningregistry__", {})
+        module_globals = globals()
+        bytecode_offset = -1
+    else:
+        module_globals = caller.f_globals
+        filename = module_globals.get("__file__", __file__)
+        lineno = caller.f_lineno
+        module = module_globals.get("__name__", "__main__")
+        registry = module_globals.setdefault("__warningregistry__", {})
+        bytecode_offset = getattr(caller, "f_lasti", -1)
+
+    metadata = (
+        '{"warning_type":"STRINGIO_WARNING",'
+        '"module_name":"StringIO",'
+        '"api_name":"StringIO",'
+        '"usage_kind":"text",'
+        '"lineno":%d,'
+        '"bytecode_offset":%d}'
+    ) % (lineno, bytecode_offset)
+    message = "StringIO module is not supported in 3.x\n  [pygrate-meta] %s" % metadata
+    warn_explicit_with_fix(
+        message,
+        "use io.StringIO for text buffer streams in 3.x",
+        DeprecationWarning,
+        filename,
+        lineno,
+        module,
+        registry,
+        module_globals,
+    )
 
 def _complain_ifclosed(closed):
     if closed:
@@ -52,6 +99,7 @@ class StringIO:
     a UnicodeError to be raised when getvalue() is called.
     """
     def __init__(self, buf = ''):
+        _warn_stringio_constructor()
         # Force self.buf to be a string or unicode
         if not isinstance(buf, basestring):
             buf = str(buf)

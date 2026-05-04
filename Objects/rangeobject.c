@@ -1,6 +1,7 @@
 /* Range object implementation */
 
 #include "Python.h"
+#include "pygrate_warning_utils.h"
 
 typedef struct {
     PyObject_HEAD
@@ -67,8 +68,27 @@ range_new(PyTypeObject *type, PyObject *args, PyObject *kw)
     rangeobject *obj;
     long ilow = 0, ihigh = 0, istep = 1;
     unsigned long n;
+    PygrateWarningContext warn_ctx;
+    int materialize;
 
-    if (PyErr_WarnPy3k_WithFix("xrange() is not supported in 3.x", "use range() instead", 1) < 0)
+    pygrate_capture_warning_context(&warn_ctx);
+    materialize = -1;
+    if (warn_ctx.consumer_opname != NULL) {
+        if (strcmp(warn_ctx.consumer_opname, "GET_ITER") == 0)
+            materialize = 0;
+        else if (strcmp(warn_ctx.consumer_opname, "BINARY_ADD") == 0 ||
+                 strcmp(warn_ctx.consumer_opname, "INPLACE_ADD") == 0)
+            materialize = 1;
+    }
+
+    if (pygrate_warn_py3k_with_context("xrange() is not supported in 3.x",
+                                       &warn_ctx,
+                                       "builtin.xrange",
+                                       "xrange",
+                                       materialize,
+                                       -1,
+                                       NULL,
+                                       1) < 0)
         return NULL;
 
     if (!_PyArg_NoKeywords("xrange()", kw))

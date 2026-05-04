@@ -2,6 +2,7 @@
 #include "Python.h"
 #include "import.h"
 #include "cStringIO.h"
+#include "pygrate_warning_utils.h"
 #include "structmember.h"
 
 PyDoc_STRVAR(cStringIO_module_documentation,
@@ -712,10 +713,63 @@ newIobject(PyObject *s) {
 PyDoc_STRVAR(IO_StringIO__doc__,
 "StringIO([s]) -- Return a StringIO-like stream for reading or writing");
 
+static int
+pygrate_warn_cstringio_constructor(void) {
+  PygrateWarningContext ctx;
+  char metadata[512];
+  char message[768];
+  const char *filename = "<unknown>";
+  int lineno = 1;
+  int offset = -1;
+
+  if (!Py_Py3kWarningFlag)
+      return 0;
+
+  if (pygrate_capture_warning_context(&ctx)) {
+      if (ctx.filename != NULL && *ctx.filename != '\0')
+          filename = ctx.filename;
+      if (ctx.lineno > 0)
+          lineno = ctx.lineno;
+      offset = ctx.call_offset;
+  }
+
+  PyOS_snprintf(
+      metadata,
+      sizeof(metadata),
+      "{\"warning_type\":\"CSTRINGIO_WARNING\","
+      "\"module_name\":\"cStringIO\","
+      "\"api_name\":\"StringIO\","
+      "\"usage_kind\":\"bytes\","
+      "\"lineno\":%d,"
+      "\"bytecode_offset\":%d}",
+      lineno,
+      offset
+  );
+  PyOS_snprintf(
+      message,
+      sizeof(message),
+      "cStringIO module is not supported in 3.x\n"
+      "  [pygrate-meta] %s",
+      metadata
+  );
+
+  if (PyErr_WarnExplicit_WithFix(
+          PyExc_Py3xWarning,
+          message,
+          "use io.BytesIO for binary buffer streams in 3.x",
+          filename,
+          lineno,
+          NULL,
+          NULL) < 0)
+      return -1;
+  return 0;
+}
+
 static PyObject *
 IO_StringIO(PyObject *self, PyObject *args) {
   PyObject *s=0;
 
+  if (pygrate_warn_cstringio_constructor() < 0) return NULL;
   if (!PyArg_UnpackTuple(args, "StringIO", 0, 1, &s)) return NULL;
 
   if (s) return newIobject(s);

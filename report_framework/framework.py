@@ -4,10 +4,12 @@ import os
 import re
 import subprocess
 import importlib.util
+import json
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
-from treelib import Node, Tree
+from typing import Dict, List, Optional, Tuple
 
+from apply_engine import build_fix_proposal
+from services.file_service import build_tree_for_ui as _build_project_tree
 from warning_fixes import WARNING_RULES
 
 
@@ -28,10 +30,32 @@ class WarningRecord:
     col_end: Optional[int] = None
     highlight: str = "unknown"
     required_imports: List[str] = field(default_factory=list)
+    fix_proposal: Optional[Dict[str, object]] = None
+    resolution_status: Optional[str] = None
+    resolution_details: Optional[Dict[str, object]] = None
+    metadata: Optional[Dict[str, object]] = None
 
 HEADER_RE = re.compile(
     r'^(?P<filename>.*?):(?P<lineno>\d+): (?P<category>[^:]+): (?P<msgfix>.*)$'
 )
+METADATA_PREFIX = "[pygrate-meta]"
+_METADATA_DECODER = json.JSONDecoder()
+
+
+def _parse_metadata_payload(payload: str):
+    try:
+        metadata, end = _METADATA_DECODER.raw_decode(payload)
+    except Exception:
+        return None, None
+
+    trailing = payload[end:].strip()
+    fix_text = None
+    if trailing:
+        if trailing.startswith("[fix=") and trailing.endswith("]"):
+            fix_text = trailing[5:-1].strip()
+        elif trailing.startswith(":"):
+            fix_text = trailing[1:].strip()
+    return metadata, fix_text
 
 
 def _load_callsite_resolver():
@@ -53,22 +77,7 @@ def _load_callsite_resolver():
 _CALLSITE_RESOLVER = _load_callsite_resolver()
 
 def build_tree_for_ui(root):
-    tree = {}
-
-    for dirpath, dirs, files in os.walk(root):
-        rel = os.path.relpath(dirpath, root)
-
-        node = tree
-        if rel != ".":
-            for part in rel.split(os.sep):
-                node = node.setdefault(part, {})
-
-        file_list = node.setdefault("__files__", [])
-        for f in files:
-            if f.endswith(".py"):
-                file_list.append(f)
-
-    return tree
+    return _build_project_tree(root)
 
 
 def _parse_warning_block(lines: List[str]):
@@ -94,8 +103,21 @@ def _parse_warning_block(lines: List[str]):
         message = msgfix
 
     code_line = ""
-    if len(lines) > 1 and lines[1].startswith("  "):
-        code_line = lines[1].strip()
+    metadata = None
+    for extra_line in lines[1:]:
+        stripped = extra_line.strip()
+        if stripped.startswith(METADATA_PREFIX):
+            payload = stripped[len(METADATA_PREFIX):].strip()
+            parsed_metadata, parsed_fix_text = _parse_metadata_payload(payload)
+            if parsed_metadata is not None:
+                metadata = parsed_metadata
+                if fix_text is None and parsed_fix_text:
+                    fix_text = parsed_fix_text
+            else:
+                metadata = {"raw": payload}
+            continue
+        if not code_line and extra_line.startswith("  "):
+            code_line = stripped
 
     return {
         "header": lines[0],
@@ -105,6 +127,7 @@ def _parse_warning_block(lines: List[str]):
         "message": message,
         "fix_text": fix_text,
         "line": code_line,
+        "metadata": metadata,
     }
 
 
@@ -136,31 +159,66 @@ def _resolve_warning_callsite(raw: dict, abs_filename: str, pygrate_root: Option
 def _resolve_cmp_method_instance(raw: dict, resolved_callsite: Optional[dict]):
     if "the cmp method is not supported in 3.x" not in raw.get("message", ""):
         return None
-    if not resolved_callsite:
-        return None
 
-    resolved_call = resolved_callsite.get("resolved_call") or {}
-    display_line = (
-        resolved_call.get("text")
-        or resolved_callsite.get("callee")
-        or raw.get("line", "")
-    )
-    col_start = resolved_call.get("col_start")
-    col_end = resolved_call.get("col_end")
+    display_filename = raw.get("filename")
+    display_lineno = raw.get("lineno")
+    display_line = raw.get("line", "")
+    col_start = 0
+    col_end = len(display_line)
+    resolution_status = "unresolved"
+    resolution_details = None
+
+    if resolved_callsite:
+        resolved_call = resolved_callsite.get("resolved_call") or {}
+        display_filename = resolved_callsite.get("source") or display_filename
+        display_lineno = (
+            resolved_call.get("line_start")
+            or resolved_callsite.get("lineno")
+            or display_lineno
+        )
+        call_line_text = resolved_callsite.get("line_text") or raw.get("line", "")
+        if (
+            resolved_call.get("line_start")
+            and resolved_call.get("line_end")
+            and resolved_call.get("line_start") != resolved_call.get("line_end")
+        ):
+            statement_text = resolved_callsite.get("statement_text") or ""
+            display_line = statement_text.splitlines()[0] if statement_text else call_line_text
+        else:
+            display_line = (
+                resolved_call.get("text")
+                or resolved_callsite.get("callee")
+                or call_line_text
+                or raw.get("line", "")
+            )
+        col_start = resolved_call.get("col_start")
+        col_end = resolved_call.get("col_end")
+        resolution_status = resolved_callsite.get("resolution_status") or "resolved"
+        resolution_details = {
+            "callee": resolved_callsite.get("callee"),
+            "knownCallees": resolved_callsite.get("known_callees"),
+            "statementText": resolved_callsite.get("statement_text"),
+            "offset": resolved_callsite.get("offset"),
+        }
 
     if not isinstance(col_start, int) or not isinstance(col_end, int) or col_end < col_start:
         col_start = 0
         col_end = len(display_line)
 
-    return (
-        "CMP_METHOD_WARNING",
-        None,
-        display_line,
-        col_start,
-        col_end,
-        "cmp",
-        [],
-    )
+    return {
+        "filename": display_filename,
+        "lineno": display_lineno,
+        "warning_type": "CMP_METHOD_WARNING",
+        "auto_fix_line": None,
+        "display_line": display_line,
+        "col_start": col_start,
+        "col_end": col_end,
+        "highlight": "cmp",
+        "required_imports": [],
+        "fix_proposal": None,
+        "resolution_status": resolution_status,
+        "resolution_details": resolution_details,
+    }
 
 
 def _extract_warning_blocks(stderr_text: str) -> List[List[str]]:
@@ -187,8 +245,20 @@ def _extract_warning_blocks(stderr_text: str) -> List[List[str]]:
     return blocks
 
 
+def _read_source_line(path: str, lineno: int) -> str:
+    if lineno <= 0:
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for current_lineno, line in enumerate(f, start=1):
+                if current_lineno == lineno:
+                    return line.rstrip("\n")
+    except Exception:
+        return ""
+    return ""
 
-def _enrich_with_rule(raw: dict):
+
+def _enrich_with_rule(raw: dict, resolved_callsite: Optional[dict] = None):
     """
     Given a raw parsed warning dict, apply WARNING_RULES to:
       - assign warning_type
@@ -204,19 +274,23 @@ def _enrich_with_rule(raw: dict):
     default_display_line = src
 
     for rule in WARNING_RULES:
-        if rule["message_contains"] not in msg:
+        if rule.message_match not in msg:
             continue
 
-        warning_type = rule["warning_type"]
-        fix_kind = rule.get("fix_kind")
-        fix_scope = rule.get("fix_scope", "line")
-        pattern = rule.get("pattern")
-        replacement = rule.get("replacement")
-        replacement_func = rule.get("replacement_func")
-        highlight_key = rule.get("highlight")
-        rule_imports = rule.get("imports") or []
-        if not isinstance(rule_imports, list):
-            rule_imports = [str(rule_imports)]
+        if callable(rule.instance_builder):
+            built_instances = rule.instance_builder(raw, resolved_callsite, rule)
+            if built_instances:
+                instances.extend(built_instances)
+            break
+
+        warning_type = rule.warning_type
+        fix_kind = rule.fix_kind
+        fix_scope = rule.fix_scope or "line"
+        pattern = rule.pattern
+        replacement = rule.replacement
+        replacement_func = rule.replacement_func
+        highlight_key = rule.highlight_mode
+        rule_imports = list(rule.imports or [])
 
         if fix_scope == "line":
             auto_fix_line = None
@@ -239,16 +313,31 @@ def _enrich_with_rule(raw: dict):
                 if m:
                     highlight_start, highlight_end = m.start(), m.end()
 
+            proposal = build_fix_proposal(
+                filename=raw["filename"],
+                rel_filename="",
+                lineno=raw["lineno"],
+                warning_type=warning_type,
+                message=raw["message"],
+                scope="line",
+                original_text=src,
+                replacement_text=auto_fix_line,
+                col_start=None,
+                col_end=None,
+                required_imports=rule_imports,
+            )
+
             instances.append(
-                (
-                    warning_type,
-                    auto_fix_line,
-                    src,
-                    highlight_start,
-                    highlight_end,
-                    highlight_key,
-                    rule_imports,
-                )
+                {
+                    "warning_type": warning_type,
+                    "auto_fix_line": auto_fix_line,
+                    "display_line": src,
+                    "col_start": highlight_start,
+                    "col_end": highlight_end,
+                    "highlight": highlight_key,
+                    "required_imports": rule_imports,
+                    "fix_proposal": proposal,
+                }
             )
 
         elif fix_scope == "expression":
@@ -265,16 +354,31 @@ def _enrich_with_rule(raw: dict):
                         if fixed_expr != expr:
                             auto_fix_line = fixed_expr
 
+                    proposal = build_fix_proposal(
+                        filename=raw["filename"],
+                        rel_filename="",
+                        lineno=raw["lineno"],
+                        warning_type=warning_type,
+                        message=raw["message"],
+                        scope="expression",
+                        original_text=expr,
+                        replacement_text=auto_fix_line,
+                        col_start=start,
+                        col_end=end,
+                        required_imports=rule_imports,
+                    )
+
                     instances.append(
-                        (
-                            warning_type,
-                            auto_fix_line,
-                            expr,
-                            start,
-                            end,
-                            highlight_key,
-                            rule_imports,
-                        )
+                        {
+                            "warning_type": warning_type,
+                            "auto_fix_line": auto_fix_line,
+                            "display_line": expr,
+                            "col_start": start,
+                            "col_end": end,
+                            "highlight": highlight_key,
+                            "required_imports": rule_imports,
+                            "fix_proposal": proposal,
+                        }
                     )
 
             else:
@@ -284,23 +388,47 @@ def _enrich_with_rule(raw: dict):
                     if new_line != src:
                         auto_fix_line = new_line
 
+                proposal = build_fix_proposal(
+                    filename=raw["filename"],
+                    rel_filename="",
+                    lineno=raw["lineno"],
+                    warning_type=warning_type,
+                    message=raw["message"],
+                    scope="expression",
+                    original_text=src,
+                    replacement_text=auto_fix_line,
+                    col_start=0,
+                    col_end=len(src),
+                    required_imports=rule_imports,
+                )
+
                 instances.append(
-                    (
-                        warning_type,
-                        auto_fix_line,
-                        src,
-                        0,
-                        len(src),
-                        highlight_key,
-                        rule_imports,
-                    )
+                    {
+                        "warning_type": warning_type,
+                        "auto_fix_line": auto_fix_line,
+                        "display_line": src,
+                        "col_start": 0,
+                        "col_end": len(src),
+                        "highlight": highlight_key,
+                        "required_imports": rule_imports,
+                        "fix_proposal": proposal,
+                    }
                 )
 
         break
 
     if not instances:
         instances.append(
-            (default_warning_type, None, default_display_line, 0, len(default_display_line), "unknown", [])
+            {
+                "warning_type": default_warning_type,
+                "auto_fix_line": None,
+                "display_line": default_display_line,
+                "col_start": 0,
+                "col_end": len(default_display_line),
+                "highlight": "unknown",
+                "required_imports": [],
+                "fix_proposal": None,
+            }
         )
 
     return instances
@@ -310,7 +438,11 @@ def _enrich_with_rule(raw: dict):
 
 
 
-def _run_pygrate(file_path: str, pygrate_root: Optional[str] = None):
+def _run_pygrate(
+    file_path: str,
+    project_root: str,
+    pygrate_root: Optional[str] = None,
+):
     """
     Execute pygrate2's ./python -3 <file_path> and return (stdout, stderr).
     """
@@ -319,15 +451,57 @@ def _run_pygrate(file_path: str, pygrate_root: Optional[str] = None):
         pygrate_root = os.path.abspath(os.path.join(here, ".."))  # pygrate2/
 
     python_exec = os.path.join(pygrate_root, "python")
+    abs_root = os.path.abspath(project_root)
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        abs_root + os.pathsep + existing_pythonpath
+        if existing_pythonpath
+        else abs_root
+    )
 
     proc = subprocess.Popen(
         [python_exec, "-3", "-B", file_path],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        cwd=abs_root,
+        env=env,
     )
     stdout, stderr = proc.communicate()
     return stdout, stderr
+
+
+def _extract_runtime_output(stdout: str, stderr: str) -> str:
+    kept_lines: List[str] = []
+    lines = stderr.splitlines()
+    idx = 0
+
+    while idx < len(lines):
+        line = lines[idx]
+        if HEADER_RE.match(line):
+            idx += 1
+            while idx < len(lines):
+                next_line = lines[idx]
+                stripped = next_line.strip()
+                if stripped.startswith(METADATA_PREFIX):
+                    idx += 1
+                    continue
+                if next_line.startswith("  ") and not next_line.startswith("  File "):
+                    idx += 1
+                    continue
+                break
+            continue
+        kept_lines.append(line)
+        idx += 1
+
+    runtime_parts = []
+    if stdout:
+        runtime_parts.append(stdout.rstrip("\n"))
+    stderr_runtime = "\n".join(kept_lines).strip()
+    if stderr_runtime:
+        runtime_parts.append(stderr_runtime)
+    return "\n".join(part for part in runtime_parts if part)
 
 
 
@@ -345,7 +519,7 @@ def analyze_file_with_output(pygrate_root: Optional[str], project_root: str, fil
     else:
         abs_file = os.path.abspath(file_path)
 
-    stdout, stderr = _run_pygrate(abs_file, pygrate_root)
+    stdout, stderr = _run_pygrate(abs_file, abs_root, pygrate_root)
 
     blocks = _extract_warning_blocks(stderr)
     results: List[WarningRecord] = []
@@ -360,45 +534,70 @@ def analyze_file_with_output(pygrate_root: Optional[str], project_root: str, fil
         if not abs_filename.startswith(abs_root):
             continue
 
-        
+        actual_line = _read_source_line(abs_filename, raw["lineno"])
+        if actual_line:
+            raw["line"] = actual_line
+
         # Avoid warning to print()
-        raw["line"] = re.sub(r' {2,}', ' ', raw["line"])
         if ("print must be called as a function" in raw["message"]
                 and re.match(r'^\s*print\(', raw["line"])
             ):
+            continue
+        # Pygrate2 still parses exec(...) as Exec_kind under Python 2 syntax.
+        # Once the source has been migrated to function-call form, suppress the
+        # warning so preview/save+reanalyze can converge on the migrated text.
+        if (
+            (
+                "exec statement is not supported in 3.x" in raw["message"]
+                or "exec scope semantics may require manual review in 3.x" in raw["message"]
+            )
+            and re.match(r'^\s*exec\(', raw["line"])
+        ):
             continue
 
         rel_filename = os.path.relpath(abs_filename, abs_root)
         resolved_callsite = _resolve_warning_callsite(raw, abs_filename, pygrate_root)
         cmp_instance = _resolve_cmp_method_instance(raw, resolved_callsite)
-        instances = [cmp_instance] if cmp_instance else _enrich_with_rule(raw)
-        for (
-            warning_type,
-            auto_fix_line,
-            display_line,
-            col_start,
-            col_end,
-            highlight_key,
-            required_imports,
-        ) in instances:
+        instances = [cmp_instance] if cmp_instance else _enrich_with_rule(raw, resolved_callsite)
+        for instance in instances:
+            record_filename = abs_filename
+            record_rel_filename = rel_filename
+            instance_filename = instance.get("filename")
+            if instance_filename:
+                candidate_filename = os.path.abspath(instance_filename)
+                if candidate_filename.startswith(abs_root):
+                    record_filename = candidate_filename
+                    record_rel_filename = os.path.relpath(candidate_filename, abs_root)
+
+            record_lineno = instance.get("lineno", raw["lineno"])
+            if not isinstance(record_lineno, int):
+                record_lineno = raw["lineno"]
+
+            proposal = instance.get("fix_proposal")
+            if proposal is not None:
+                proposal.rel_filename = record_rel_filename
             rec = WarningRecord(
-                filename=abs_filename,
-                rel_filename=rel_filename,
-                lineno=raw["lineno"],
+                filename=record_filename,
+                rel_filename=record_rel_filename,
+                lineno=record_lineno,
                 category=raw["category"],
                 message=raw["message"],
                 fix_text=raw["fix_text"],
-                line=display_line,
-                warning_type=warning_type,
-                auto_fix_line=auto_fix_line,
-                col_start=col_start,
-                col_end=col_end,
-                highlight=highlight_key,
-                required_imports=required_imports,
+                line=instance["display_line"],
+                warning_type=instance["warning_type"],
+                auto_fix_line=instance["auto_fix_line"],
+                col_start=instance["col_start"],
+                col_end=instance["col_end"],
+                highlight=instance["highlight"],
+                required_imports=instance["required_imports"],
+                fix_proposal=proposal.to_dict() if proposal is not None else None,
+                resolution_status=instance.get("resolution_status"),
+                resolution_details=instance.get("resolution_details"),
+                metadata=raw.get("metadata"),
             )
             results.append(rec)
 
-    return results, stdout
+    return results, _extract_runtime_output(stdout, stderr)
 
 
 def analyze_file(pygrate_root: Optional[str], project_root: str, file_path: str) -> List[WarningRecord]:

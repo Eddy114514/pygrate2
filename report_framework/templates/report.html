@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <title>Pygrate Migration Report</title>
+    <!-- Legacy template: the maintained UI entrypoint is templates/frontend_shell.html. -->
 
     
 
@@ -60,6 +61,7 @@
         window.PYGRATE_DATA = {
             files: {{ files_map|tojson|safe }},
             warnings: {{ warnings_for_js|tojson|safe }},
+            engineRoot: {{ engine_root|tojson|safe }},
             projectRoot: {{ project_root|tojson|safe }},
             currentFile: {{ file_path|tojson|safe }},
             runOutput: {{ run_output|tojson|safe }}

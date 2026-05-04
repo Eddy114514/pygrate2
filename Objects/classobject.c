@@ -2,6 +2,7 @@
 /* Class object implementation */
 
 #include "Python.h"
+#include "pygrate_warning_utils.h"
 #include "structmember.h"
 
 /* Free list for method objects to save malloc/free overhead
@@ -23,6 +24,145 @@ static PyObject *instance_getattr1(PyInstanceObject *, PyObject *);
 static PyObject *instance_getattr2(PyInstanceObject *, PyObject *);
 
 static PyObject *getattrstr, *setattrstr, *delattrstr;
+
+
+static int
+pygrate_class_lineno(void)
+{
+    PyFrameObject *frame = PyEval_GetFrame();
+    if (frame == NULL)
+        return 0;
+    return PyFrame_GetLineNumber(frame);
+}
+
+static void
+pygrate_class_bases_json(PyObject *bases, char *buf, size_t size)
+{
+    Py_ssize_t i, n;
+    size_t used = 0;
+
+    if (size == 0)
+        return;
+
+    buf[0] = '[';
+    used = 1;
+    n = (bases && PyTuple_Check(bases)) ? PyTuple_GET_SIZE(bases) : 0;
+    for (i = 0; i < n && used + 2 < size; i++) {
+        PyObject *base = PyTuple_GET_ITEM(bases, i);
+        const char *base_name = NULL;
+        char quoted[128];
+        int wrote;
+
+        if (PyClass_Check(base) && ((PyClassObject *)base)->cl_name != NULL)
+            base_name = PyString_AsString(((PyClassObject *)base)->cl_name);
+
+        pygrate_json_quote_or_null(quoted, sizeof(quoted), base_name);
+        wrote = PyOS_snprintf(
+            buf + used,
+            size - used,
+            "%s%s",
+            i ? "," : "",
+            quoted
+        );
+        if (wrote < 0)
+            break;
+        if ((size_t)wrote >= size - used) {
+            used = size - 1;
+            break;
+        }
+        used += (size_t)wrote;
+    }
+
+    if (used + 2 >= size)
+        used = size - 2;
+    buf[used++] = ']';
+    buf[used] = '\0';
+}
+
+static int
+pygrate_warn_old_style_class(PyObject *name, PyObject *bases)
+{
+    char class_name_json[128];
+    char bases_json[512];
+    char metadata[768];
+    char message[1024];
+    char fix[256];
+    const char *class_name = PyString_AsString(name);
+    int lineno = pygrate_class_lineno();
+    Py_ssize_t base_count = (bases && PyTuple_Check(bases)) ? PyTuple_GET_SIZE(bases) : 0;
+
+    pygrate_json_quote_or_null(class_name_json, sizeof(class_name_json), class_name);
+    pygrate_class_bases_json(bases, bases_json, sizeof(bases_json));
+    PyOS_snprintf(
+        metadata,
+        sizeof(metadata),
+        "{\"warning_type\":\"OLD_STYLE_CLASS_WARNING\","
+        "\"class_name\":%s,"
+        "\"bases\":%s,"
+        "\"is_classic_class\":true,"
+        "\"lineno\":%d}",
+        class_name_json,
+        bases_json,
+        lineno
+    );
+    PyOS_snprintf(
+        message,
+        sizeof(message),
+        "old-style classes are not supported in 3.x\n"
+        "  [pygrate-meta] %s",
+        metadata
+    );
+
+    if (base_count == 0 && class_name != NULL)
+        PyOS_snprintf(fix, sizeof(fix), "rewrite as class %s(object):", class_name);
+    else
+        PyOS_snprintf(
+            fix,
+            sizeof(fix),
+            "ensure this class uses only new-style bases in 3.x"
+        );
+
+    return PyErr_WarnPy3k_WithFix(message, fix, 1);
+}
+
+static int
+pygrate_warn_mro_risk(PyObject *name, PyObject *bases)
+{
+    char class_name_json[128];
+    char bases_json[512];
+    char metadata[768];
+    char message[1024];
+    const char *class_name = PyString_AsString(name);
+    int lineno = pygrate_class_lineno();
+
+    pygrate_json_quote_or_null(class_name_json, sizeof(class_name_json), class_name);
+    pygrate_class_bases_json(bases, bases_json, sizeof(bases_json));
+    PyOS_snprintf(
+        metadata,
+        sizeof(metadata),
+        "{\"warning_type\":\"MRO_RISK_WARNING\","
+        "\"class_name\":%s,"
+        "\"bases\":%s,"
+        "\"risk_kind\":\"classic_multi_inheritance\","
+        "\"lineno\":%d}",
+        class_name_json,
+        bases_json,
+        lineno
+    );
+    PyOS_snprintf(
+        message,
+        sizeof(message),
+        "classic-class multiple inheritance may change MRO in 3.x\n"
+        "  [pygrate-meta] %s",
+        metadata
+    );
+
+    return PyErr_WarnPy3k_WithFix(
+        message,
+        "manual review required for base order, super calls, and attribute resolution under C3 MRO",
+        1
+    );
+}
 
 
 PyObject *
@@ -98,6 +238,17 @@ PyClass_New(PyObject *bases, PyObject *dict, PyObject *name)
             }
         }
         Py_INCREF(bases);
+    }
+
+    if (pygrate_warn_old_style_class(name, bases) < 0) {
+        Py_DECREF(bases);
+        return NULL;
+    }
+    if (PyTuple_Check(bases) && PyTuple_GET_SIZE(bases) > 1) {
+        if (pygrate_warn_mro_risk(name, bases) < 0) {
+            Py_DECREF(bases);
+            return NULL;
+        }
     }
 
     if (getattrstr == NULL) {

@@ -1,3 +1,6 @@
+// Legacy fallback implementation kept only for migration reference.
+// The supported UI path now uses report_framework/frontend + Vite bundle.
+
 const { useEffect, useRef, useState } = React;
 const { Table, Card, Typography, Empty, Layout } = antd;
 
@@ -14,19 +17,27 @@ function typeToHighlightClass(highlight) {
     const cmRef = useRef(null);
 
     const data = window.PYGRATE_DATA || { files: {}, warnings: [], projectRoot: "", currentFile: "" };
-    const warningsAll = data.warnings || [];
+    const engineRoot = data.engineRoot || "";
     const projectRoot = data.projectRoot || "";
 
     const [files, setFiles] = useState(data.files || {});
+    const [warningsAll, setWarningsAll] = useState(data.warnings || []);
     const initialFile = data.currentFile || Object.keys(files)[0] || "";
 
     const [activeFile, setActiveFile] = useState(initialFile);
-    const [runOutput] = useState(data.runOutput || "");
+    const [runOutput, setRunOutput] = useState(data.runOutput || "");
+    const [previewDiffText, setPreviewDiffText] = useState("");
 
     const sourceText = files[activeFile] || "";
     const warnings = warningsAll.filter(w => w.file === activeFile);
+    const [selectedWarningId, setSelectedWarningId] = useState(null);
+    const selectedWarning = warnings.find((w) => w.warningId === selectedWarningId) || null;
 
-    const [selectedWarning, setSelectedWarning] = useState(null);
+    useEffect(() => {
+        if (selectedWarningId && !warnings.some((w) => w.warningId === selectedWarningId)) {
+            setSelectedWarningId(null);
+        }
+    }, [warnings, selectedWarningId]);
 
     useEffect(() => {
         if (!editorHostRef.current) return;
@@ -55,7 +66,14 @@ function typeToHighlightClass(highlight) {
             const lineText = cm.getLine(lineIdx) || "";
             const orig = w.original || "";
 
-            if (orig) {
+            if (
+                typeof w.colStart === "number" &&
+                typeof w.colEnd === "number" &&
+                w.colEnd > w.colStart
+            ) {
+                fromCh = Math.max(0, Math.min(w.colStart, lineText.length));
+                toCh = Math.max(fromCh, Math.min(w.colEnd, lineText.length));
+            } else if (orig) {
                 const idx = lineText.indexOf(orig);
                 if (idx >= 0) {
                     fromCh = idx;
@@ -110,7 +128,7 @@ function typeToHighlightClass(highlight) {
                 }
 
                 if (bestWarning) {
-                    setSelectedWarning(bestWarning);
+                    setSelectedWarningId(bestWarning.warningId);
                     return;
                 }
             }
@@ -118,7 +136,7 @@ function typeToHighlightClass(highlight) {
             const lineIdx = pos.line;
             const list = warningsByLine[lineIdx];
             if (!list || list.length === 0) return;
-            setSelectedWarning(list[0]);
+            setSelectedWarningId(list[0].warningId);
         }
 
         cm.on("mousedown", handleMouseDown);
@@ -179,7 +197,7 @@ function typeToHighlightClass(highlight) {
                 <p>
                     <button
                         type="button"
-                        disabled={!w.fix}
+                        disabled={!w.proposal}
                         onClick={() => applyFixes(w)}
                     >
                         Apply this fix
@@ -205,168 +223,12 @@ function typeToHighlightClass(highlight) {
         );
     };
 
-    function findImportInsertIndex(lines) {
-        let idx = 0;
-        if (lines[idx] && lines[idx].startsWith("#!")) {
-            idx += 1;
-        }
-
-        if (lines[idx] && /coding[:=]\s*[-\w.]+/i.test(lines[idx])) {
-            idx += 1;
-        }
-
-        while (idx < lines.length && lines[idx].trim() === "") {
-            idx += 1;
-        }
-
-        // Skip module docstring
-        if (idx < lines.length) {
-            const line = lines[idx].trim();
-            if (line.startsWith('"""') || line.startsWith("'''")) {
-                const quote = line.startsWith('"""') ? '"""' : "'''";
-                if (line.split(quote).length - 1 >= 2) {
-                    idx += 1;
-                } else {
-                    idx += 1;
-                    while (idx < lines.length) {
-                        if (lines[idx].includes(quote)) {
-                            idx += 1;
-                            break;
-                        }
-                        idx += 1;
-                    }
-                }
-            }
-        }
-
-        while (idx < lines.length && lines[idx].trim() === "") {
-            idx += 1;
-        }
-
-        return idx;
-    }
-
-    function ensureImports(text, importsToAdd) {
-        if (!importsToAdd || importsToAdd.length === 0) return text;
-
-        const lines = text.split("\n");
-        const existing = new Set(
-            lines
-                .map((l) => l.trim())
-                .filter((s) => s.startsWith("import ") || s.startsWith("from "))
-        );
-
-        const missingLines = [];
-        const added = new Set();
-
-        importsToAdd.forEach((imp) => {
-            if (typeof imp !== "string") return;
-            const trimmed = imp.trim();
-            if (!trimmed) return;
-            if (existing.has(trimmed) || added.has(trimmed)) return;
-            missingLines.push(trimmed);
-            added.add(trimmed);
-        });
-
-        if (!missingLines.length) return text;
-
-        const insertAt = findImportInsertIndex(lines);
-        const needBlank = insertAt < lines.length && lines[insertAt].trim() !== "";
-        const toInsert = needBlank ? missingLines.concat([""]) : missingLines;
-        lines.splice(insertAt, 0, ...toInsert);
-
-        return lines.join("\n");
-    }
-
-    function collectImportsForWarnings(warningsList) {
-        const set = new Set();
-        warningsList.forEach((w) => {
-            const arr = w.importsNeeded || w.imports || [];
-            arr.forEach((imp) => {
-                if (typeof imp === "string" && imp.trim()) set.add(imp.trim());
-            });
-        });
-        return Array.from(set);
-    }
-
-    function applyFixesToText(text, warningsList) {
-        let lines = text.split("\n");
-        const byLine = {};
-        const appliedWarnings = [];
-
-        warningsList.forEach((w) => {
-            const idx = w.line - 1;
-            if (idx < 0) return;
-            if (!byLine[idx]) byLine[idx] = [];
-            byLine[idx].push(w);
-        });
-
-        Object.keys(byLine).forEach((k) => {
-            const idx = parseInt(k, 10);
-            let lineStr = lines[idx] || "";
-            const ws = byLine[idx];
-
-            const sorted = ws.slice().sort((a, b) => {
-                const lenA =
-                    (typeof a.colStart === "number" &&
-                        typeof a.colEnd === "number" &&
-                        a.colEnd > a.colStart)
-                        ? a.colEnd - a.colStart
-                        : (a.original ? a.original.length : 0);
-                const lenB =
-                    (typeof b.colStart === "number" &&
-                        typeof b.colEnd === "number" &&
-                        b.colEnd > b.colStart)
-                        ? b.colEnd - b.colStart
-                        : (b.original ? b.original.length : 0);
-                if (lenA !== lenB) return lenB - lenA;
-                const sa = typeof a.colStart === "number" ? a.colStart : 0;
-                const sb = typeof b.colStart === "number" ? b.colStart : 0;
-                return sa - sb;
-            });
-
-            sorted.forEach((w) => {
-                if (typeof w.fix !== "string" || !w.fix.length) return;
-
-                const orig = w.original || "";
-                if (!orig) return;
-
-                const pos = lineStr.indexOf(orig);
-                if (pos < 0) {
-                    return;
-                }
-
-                const start = pos;
-                const end = pos + orig.length;
-
-                lineStr =
-                    lineStr.slice(0, start) +
-                    w.fix +
-                    lineStr.slice(end);
-                if (lineStr !== lines[idx]) {
-                    appliedWarnings.push(w);
-                }
-            });
-
-            lines[idx] = lineStr;
-        });
-
-        if (!appliedWarnings.length) {
-            return text;
-        }
-
-        const newText = lines.join("\n");
-        const importsToAdd = collectImportsForWarnings(appliedWarnings);
-        return ensureImports(newText, importsToAdd);
-    }
-
-    const applyFixes = (targetWarning = null) => {
+    async function requestPreviewApply(targetWarnings) {
         const cm = cmRef.current;
         if (!cm) return;
 
-        const allWarnings = targetWarning ? [targetWarning] : warnings;
-        const toApply = allWarnings.filter(
-            (w) => typeof w.fix === "string" && w.fix.length > 0
+        const toApply = (targetWarnings || []).filter(
+            (w) => w && w.proposal
         );
 
         if (toApply.length === 0) {
@@ -375,38 +237,84 @@ function typeToHighlightClass(highlight) {
         }
 
         const currentText = cm.getValue();
-        const newSource = applyFixesToText(currentText, toApply);
-        cm.setValue(newSource);
-        setFiles(prev => ({
-            ...prev,
-            [activeFile]: newSource,
-        }));
+        try {
+            const resp = await fetch("/preview_apply", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    root: projectRoot,
+                    file: activeFile,
+                    sourceText: currentText,
+                    warnings: toApply,
+                }),
+            });
+            const json = await resp.json();
+            if (!json.ok) {
+                alert("Preview apply failed: " + (json.error || "unknown error"));
+                return;
+            }
+            cm.setValue(json.sourceText || currentText);
+            setFiles((prev) => ({
+                ...prev,
+                [activeFile]: json.sourceText || currentText,
+            }));
+            setPreviewDiffText(json.diffText || "");
+            setSelectedWarningId(null);
+            if (typeof json.appliedCount === "number" && json.appliedCount <= 0) {
+                alert("No fixes were applied.");
+            }
+        } catch (e) {
+            alert("Preview apply failed: " + e);
+        }
+    }
+
+    const applyFixes = async (targetWarning = null) => {
+        const allWarnings = targetWarning ? [targetWarning] : warnings;
+        await requestPreviewApply(allWarnings);
     };
 
-    const applyFixesAllFiles = async () => {
-        let updatedFiles = { ...files };
-
-        for (const file of Object.keys(updatedFiles)) {
-            const fileWarnings = warningsAll.filter(
-                (w) => w.file === file && typeof w.fix === "string" && w.fix.length > 0
-            );
-            if (!fileWarnings.length) continue;
-
-            const originalText =
-                file === activeFile && cmRef.current
-                    ? cmRef.current.getValue()
-                    : (updatedFiles[file] || "");
-
-            const newText = applyFixesToText(originalText, fileWarnings);
-            updatedFiles[file] = newText;
-        }
-
-        setFiles(updatedFiles);
-
-        if (cmRef.current && activeFile && updatedFiles[activeFile] != null) {
-            cmRef.current.setValue(updatedFiles[activeFile]);
-        }
+    const applyAllFixesInActiveFile = async () => {
+        await requestPreviewApply(warnings);
     };
+
+    async function saveAndReanalyze() {
+        const cm = cmRef.current;
+        if (!cm) return;
+
+        const currentText = cm.getValue();
+        try {
+            const resp = await fetch("/save_and_reanalyze", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    engine: engineRoot,
+                    root: projectRoot,
+                    file: activeFile,
+                    sourceText: currentText,
+                }),
+            });
+            const json = await resp.json();
+            if (!json.ok) {
+                alert("Save failed: " + (json.error || "unknown error"));
+                return;
+            }
+
+            const updatedText = json.sourceText || currentText;
+            cm.setValue(updatedText);
+            setFiles((prev) => ({
+                ...prev,
+                [activeFile]: updatedText,
+            }));
+            setWarningsAll((prev) => {
+                const next = prev.filter((w) => w.file !== activeFile);
+                return next.concat(json.warnings || []);
+            });
+            setRunOutput(json.runOutput || "");
+            setPreviewDiffText("");
+        } catch (e) {
+            alert("Save failed: " + e);
+        }
+    }
 
     return (
         <Layout style={{ height: "100%" }}>
@@ -417,53 +325,7 @@ function typeToHighlightClass(highlight) {
                             <h2>Source</h2>
                             <button
                                 type="button"
-                                onClick={async () => {
-                                    if (!cmRef.current) return;
-                                    const currentText = cmRef.current.getValue();
-
-                                    const updatedFiles = {
-                                        ...files,
-                                        [activeFile]: currentText,
-                                    };
-
-                                    setFiles(updatedFiles);
-
-                                    try {
-                                        const resp = await fetch("/refreshprev", {
-                                                method: "POST",
-                                                headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({
-                                                    root: projectRoot,
-                                                }),
-                                            });
-                                        const json = await resp.json();
-                                        if (!json.ok) {
-                                                alert("Refresh failed for pygrate_history: " + (json.error || "unknown error"));
-                                                return;
-                                            }
-                                        const entries = Object.entries(updatedFiles);
-                                        for (let i = 0; i < entries.length; i++) {
-                                            const [fname, content] = entries[i];
-                                            const resp = await fetch("/save", {
-                                                method: "POST",
-                                                headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({
-                                                    root: projectRoot,
-                                                    file: fname,
-                                                    sourceText: content,
-                                                }),
-                                            });
-                                            const json = await resp.json();
-                                            if (!json.ok) {
-                                                alert("Save failed for " + fname + ": " + (json.error || "unknown error"));
-                                                return;
-                                            }
-                                        }
-                                        
-                                    } catch (e) {
-                                        alert("Save failed: " + e);
-                                    }
-                                }}
+                                onClick={saveAndReanalyze}
                             >
                                 Save
                             </button>
@@ -481,7 +343,8 @@ function typeToHighlightClass(highlight) {
                                                 [activeFile]: text,
                                             }));
                                         }
-                                        setSelectedWarning(null);
+                                        setPreviewDiffText("");
+                                        setSelectedWarningId(null);
                                         setActiveFile(f);
                                     }}
                                     style={{
@@ -502,6 +365,12 @@ function typeToHighlightClass(highlight) {
                             <div className="terminal-header">Output</div>
                             <pre className="terminal-body">{runOutput}</pre>
                         </div>
+                        {previewDiffText ? (
+                            <div className="terminal">
+                                <div className="terminal-header">Preview diff</div>
+                                <pre className="terminal-body">{previewDiffText}</pre>
+                            </div>
+                        ) : null}
                     </div>
 
                     <div className="panel panel-right">
@@ -511,7 +380,7 @@ function typeToHighlightClass(highlight) {
                             <h2>Warnings</h2>
                             <button
                                 type="button"
-                                onClick={applyFixesAllFiles}
+                                onClick={applyAllFixesInActiveFile}
                             >
                                 Fix all
                             </button>
@@ -526,11 +395,11 @@ function typeToHighlightClass(highlight) {
                                 className="warnings-table"
                                 dataSource={warnings}
                                 columns={columns}
-                                rowKey={(w, i) => i}
+                                rowKey={(w) => w.warningId}
                                 size="small"
                                 pagination={false}
                                 onRow={record => ({
-                                    onClick: () => setSelectedWarning(record),
+                                    onClick: () => setSelectedWarningId(record.warningId),
                                 })}
                             />
                         </div>

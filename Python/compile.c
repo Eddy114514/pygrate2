@@ -157,6 +157,8 @@ static int compiler_addop_j(struct compiler *, int, basicblock *, int);
 static basicblock *compiler_use_new_block(struct compiler *);
 static int compiler_error(struct compiler *, const char *);
 static int compiler_nameop(struct compiler *, identifier, expr_context_ty);
+static int compiler_warn_exec_statement(struct compiler *, stmt_ty);
+static int compiler_warn_exec_scope(struct compiler *, stmt_ty);
 
 static PyCodeObject *compiler_mod(struct compiler *, mod_ty);
 static int compiler_visit_stmt(struct compiler *, stmt_ty);
@@ -236,6 +238,177 @@ _Py_Mangle(PyObject *privateobj, PyObject *ident)
     memcpy(buffer+1, p, plen);
     strcpy(buffer+1+plen, name);
     return ident;
+}
+
+static const char *
+compiler_scope_kind(struct compiler *c)
+{
+    if (c == NULL || c->u == NULL || c->u->u_ste == NULL)
+        return "unknown";
+    switch (c->u->u_ste->ste_type) {
+    case ModuleBlock:
+        return "module";
+    case FunctionBlock:
+        return "function";
+    case ClassBlock:
+        return "class";
+    default:
+        return "unknown";
+    }
+}
+
+static int
+compiler_warn_with_fix_and_metadata(struct compiler *c, stmt_ty s,
+                                    const char *message,
+                                    const char *fix,
+                                    const char *metadata)
+{
+    char full_message[1024];
+
+    PyOS_snprintf(
+        full_message,
+        sizeof(full_message),
+        "%s\n  [pygrate-meta] %s",
+        message,
+        metadata ? metadata : "{}"
+    );
+
+    return PyErr_WarnExplicit_WithFix(
+        PyExc_Py3xWarning,
+        full_message,
+        fix ? fix : "",
+        c->c_filename,
+        s->lineno,
+        NULL,
+        NULL
+    ) >= 0;
+}
+
+static int
+compiler_has_cellvars(struct compiler *c)
+{
+    return c != NULL && c->u != NULL && c->u->u_cellvars != NULL &&
+           PyDict_Size(c->u->u_cellvars) > 0;
+}
+
+static int
+compiler_has_freevars(struct compiler *c)
+{
+    return c != NULL && c->u != NULL && c->u->u_freevars != NULL &&
+           PyDict_Size(c->u->u_freevars) > 0;
+}
+
+static const char *
+compiler_exec_operand_kind(expr_ty e)
+{
+    if (e == NULL)
+        return "unknown";
+    switch (e->kind) {
+    case Str_kind:
+    case Num_kind:
+    case Tuple_kind:
+    case List_kind:
+    case Dict_kind:
+    case Set_kind:
+    case Repr_kind:
+    case BinOp_kind:
+    case BoolOp_kind:
+    case UnaryOp_kind:
+    case Lambda_kind:
+    case IfExp_kind:
+    case GeneratorExp_kind:
+    case ListComp_kind:
+    case SetComp_kind:
+    case DictComp_kind:
+        return "expr";
+    default:
+        return "unknown";
+    }
+}
+
+static int
+compiler_warn_exec_statement(struct compiler *c, stmt_ty s)
+{
+    char metadata[512];
+    const char *scope_kind = compiler_scope_kind(c);
+    const char *operand_kind = compiler_exec_operand_kind(s->v.Exec.body);
+    int has_globals = s->v.Exec.globals != NULL;
+    int has_locals = s->v.Exec.locals != NULL;
+    const char *fix;
+
+    if (has_globals && has_locals)
+        fix = "rewrite as exec(expr, globals, locals)";
+    else if (has_globals)
+        fix = "rewrite as exec(expr, globals)";
+    else
+        fix = "rewrite as exec(expr)";
+
+    PyOS_snprintf(
+        metadata,
+        sizeof(metadata),
+        "{\"warning_type\":\"EXEC_STATEMENT_WARNING\","
+        "\"scope_kind\":\"%s\","
+        "\"has_explicit_globals\":%s,"
+        "\"has_explicit_locals\":%s,"
+        "\"operand_kind\":\"%s\","
+        "\"lineno\":%d}",
+        scope_kind,
+        has_globals ? "true" : "false",
+        has_locals ? "true" : "false",
+        operand_kind,
+        s->lineno
+    );
+
+    return compiler_warn_with_fix_and_metadata(
+        c,
+        s,
+        "exec statement is not supported in 3.x",
+        fix,
+        metadata
+    );
+}
+
+static int
+compiler_warn_exec_scope(struct compiler *c, stmt_ty s)
+{
+    char metadata[512];
+    const char *fix = "manual review required for exec scope semantics";
+    const char *scope_kind = compiler_scope_kind(c);
+    int has_globals = s->v.Exec.globals != NULL;
+    int has_locals = s->v.Exec.locals != NULL;
+    int has_freevars = compiler_has_freevars(c);
+    int has_cellvars = compiler_has_cellvars(c);
+
+    if (c == NULL || c->u == NULL || c->u->u_ste == NULL)
+        return 1;
+    if (c->u->u_ste->ste_type == ModuleBlock && !has_freevars && !has_cellvars)
+        return 1;
+
+    PyOS_snprintf(
+        metadata,
+        sizeof(metadata),
+        "{\"warning_type\":\"EXEC_SCOPE_WARNING\","
+        "\"scope_kind\":\"%s\","
+        "\"has_freevars\":%s,"
+        "\"has_cellvars\":%s,"
+        "\"has_explicit_globals\":%s,"
+        "\"has_explicit_locals\":%s,"
+        "\"lineno\":%d}",
+        scope_kind,
+        has_freevars ? "true" : "false",
+        has_cellvars ? "true" : "false",
+        has_globals ? "true" : "false",
+        has_locals ? "true" : "false",
+        s->lineno
+    );
+
+    return compiler_warn_with_fix_and_metadata(
+        c,
+        s,
+        "exec scope semantics may require manual review in 3.x",
+        fix,
+        metadata
+    );
 }
 
 static int
@@ -2145,6 +2318,10 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     case ImportFrom_kind:
         return compiler_from_import(c, s);
     case Exec_kind:
+        if (!compiler_warn_exec_statement(c, s))
+            return 0;
+        if (!compiler_warn_exec_scope(c, s))
+            return 0;
         VISIT(c, expr, s->v.Exec.body);
         if (s->v.Exec.globals) {
             VISIT(c, expr, s->v.Exec.globals);

@@ -1,0 +1,18 @@
+class ClassicBase(object):
+    pass
+
+
+class LeftBranch(object):
+    pass
+
+
+class RightBranch(object):
+    pass
+
+
+class MultiDerived(LeftBranch, RightBranch):
+    pass
+
+
+class AlreadyNewStyle(object):
+    pass

@@ -6,9 +6,13 @@
 # Modified 30-Dec-2003 by Barry Warsaw to add full RFC 3548 support
 
 import re
+import json
+import linecache
+import opcode
 import struct
 import string
 import binascii
+import sys
 from warnings import warnpy3k_with_fix, warnpy3k
 from functools import wraps
 
@@ -30,6 +34,135 @@ __all__ = [
 
 _translation = [chr(_x) for _x in range(256)]
 EMPTYSTRING = ''
+_PYGRATE_META_PREFIX = "  [pygrate-meta] "
+_PYGRATE_CONSUMER_OPS = frozenset([
+    "CALL_FUNCTION", "CALL_FUNCTION_VAR", "CALL_FUNCTION_KW",
+    "CALL_FUNCTION_VAR_KW", "GET_ITER", "BINARY_ADD", "INPLACE_ADD",
+    "BINARY_SUBSCR", "STORE_SUBSCR", "COMPARE_OP", "RETURN_VALUE",
+    "STORE_FAST", "STORE_NAME", "STORE_ATTR", "STORE_GLOBAL",
+])
+
+
+def _pygrate_next_offset(code, offset):
+    if offset < 0 or offset >= len(code):
+        return None
+    next_offset = offset + 1
+    if ord(code[offset]) >= opcode.HAVE_ARGUMENT:
+        next_offset += 2
+    if next_offset > len(code):
+        return None
+    return next_offset
+
+
+def _pygrate_opcode_name(code, offset):
+    if offset is None or offset < 0 or offset >= len(code):
+        return None
+    return opcode.opname[ord(code[offset])]
+
+
+def _pygrate_opcode_arg(code, offset):
+    if offset is None or offset < 0 or offset >= len(code):
+        return None
+    if ord(code[offset]) < opcode.HAVE_ARGUMENT or offset + 2 >= len(code):
+        return None
+    return ord(code[offset + 1]) | (ord(code[offset + 2]) << 8)
+
+
+def _pygrate_find_consumer(code, offset):
+    cursor = _pygrate_next_offset(code, offset)
+    while cursor is not None and cursor < len(code):
+        name = _pygrate_opcode_name(code, cursor)
+        if name in _PYGRATE_CONSUMER_OPS:
+            return name, cursor
+        cursor = _pygrate_next_offset(code, cursor)
+    return None, None
+
+
+def _pygrate_consumer_kind(opname):
+    if opname is None:
+        return None
+    if opname == "GET_ITER":
+        return "iteration"
+    if opname.startswith("CALL_FUNCTION"):
+        return "call"
+    if opname in ("BINARY_ADD", "INPLACE_ADD"):
+        return "binary_add"
+    if opname in ("BINARY_SUBSCR", "STORE_SUBSCR"):
+        return "subscript"
+    if opname == "COMPARE_OP":
+        return "compare"
+    if opname == "RETURN_VALUE":
+        return "return"
+    if opname.startswith("STORE_"):
+        return "store"
+    return "other"
+
+
+def _looks_like_text_concat(line, call_name):
+    str_lit = r"(?<![A-Za-z0-9_])(?:u|U)?(['\"]).*?\1"
+    call = r"base64\.%s\s*\(" % re.escape(call_name)
+    left = re.search(r"%s\s*\+\s*%s" % (str_lit, call), line)
+    right = re.search(r"%s\s*\+\s*%s" % (call, str_lit), line)
+    return bool(left or right)
+
+
+def _base64_warning_message(name):
+    return "base64.{0} returns str in Python 2 (bytes in 3.x)".format(name)
+
+
+def _emit_base64_py3k_warning(name):
+    caller = sys._getframe(2)
+    code = caller.f_code.co_code
+    offset = caller.f_lasti
+    lineno = caller.f_lineno
+    call_op = _pygrate_opcode_name(code, offset)
+    immediate_next = _pygrate_next_offset(code, offset)
+    next_name = _pygrate_opcode_name(code, immediate_next)
+    next_arg = _pygrate_opcode_arg(code, immediate_next)
+    if next_name == "LOAD_ATTR" and next_arg is not None:
+        names = caller.f_code.co_names
+        if 0 <= next_arg < len(names) and names[next_arg] == "decode":
+            return
+
+    consumer_op, consumer_offset = _pygrate_find_consumer(code, offset)
+    source_line = linecache.getline(caller.f_code.co_filename, lineno).strip()
+    text_consumer = None
+    if consumer_op in ("BINARY_ADD", "INPLACE_ADD") and _looks_like_text_concat(source_line, name):
+        text_consumer = True
+
+    metadata = {
+        "bytecode_offset": offset,
+        "consumer_offset": consumer_offset,
+        "consumer_op": consumer_op,
+        "consumer_kind": _pygrate_consumer_kind(consumer_op),
+        "text_consumer": text_consumer,
+        "suggested_codec": "ascii",
+        "callee_kind": "base64.%s" % name,
+    }
+    message = _base64_warning_message(name)
+    if call_op:
+        message = "%s (called from %s:%d in %s, bytecode=%s@%d)" % (
+            message,
+            caller.f_code.co_filename,
+            lineno,
+            caller.f_code.co_name,
+            call_op,
+            offset,
+        )
+    elif offset >= 0:
+        message = "%s (called from %s:%d in %s, bytecode@%d)" % (
+            message,
+            caller.f_code.co_filename,
+            lineno,
+            caller.f_code.co_name,
+            offset,
+        )
+    message = "%s\n%s%s" % (
+        message,
+        _PYGRATE_META_PREFIX,
+        json.dumps(metadata, sort_keys=True),
+    )
+    warnpy3k(message, UserWarning, stacklevel=3)
 
 def _translate(s, altchars):
     translation = _translation[:]
@@ -371,11 +504,7 @@ def test1():
 def _warn_encode(func, name):
     @wraps(func)
     def encode_wrapper(*args, **kwargs):
-        warnpy3k(
-            "base64.{0} returns str in Python 2 (bytes in 3.x)".format(name),
-            UserWarning,
-            stacklevel= 2,
-            )
+        _emit_base64_py3k_warning(name)
         return func(*args, **kwargs)
     return encode_wrapper
 

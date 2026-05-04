@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }}</title>
+    {% if vite_dev_server %}
+    <script type="module" src="{{ vite_dev_server }}/@vite/client"></script>
+    <script type="module" src="{{ vite_dev_server }}/src/main.jsx"></script>
+    {% else %}
+        {% set entry = vite_manifest.get('src/main.jsx') if vite_manifest else None %}
+        {% if entry and entry.css %}
+            {% for css_file in entry.css %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='frontend/' ~ css_file) }}">
+            {% endfor %}
+        {% endif %}
+        {% if entry and entry.file %}
+    <script type="module" src="{{ url_for('static', filename='frontend/' ~ entry.file) }}"></script>
+        {% endif %}
+    {% endif %}
+</head>
+<body>
+    <div id="root"></div>
+    <script>
+        window.PYGRATE_BOOTSTRAP = {{ bootstrap_data|tojson|safe }};
+    </script>
+</body>
+</html>

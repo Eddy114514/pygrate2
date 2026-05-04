@@ -74,14 +74,14 @@ def save_with_backup(project_root: str, file_path: str, source_text: str) -> Opt
     prev_path = os.path.join(history_root, file_path + ".prev")
 
     if os.path.exists(abs_path):
-        old_text = None
+        # Baseline semantics: the .prev file stores the on-disk content
+        # immediately before the latest save-like write for this file.
         with open(abs_path, "r", encoding="utf-8") as f:
             old_text = f.read()
 
         os.makedirs(os.path.dirname(prev_path), exist_ok=True)
 
-        if not os.path.exists(prev_path):
-            with open(prev_path, "w", encoding="utf-8") as pf:
-                pf.write(old_text)
+        with open(prev_path, "w", encoding="utf-8") as pf:
+            pf.write(old_text)
     
     return save_file(project_root, file_path, source_text)

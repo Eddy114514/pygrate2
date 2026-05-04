@@ -8,6 +8,7 @@
 */
 
 #include "Python.h"
+#include "pygrate_warning_utils.h"
 
 
 /* Set a key error with the specified argument, wrapping it in a
@@ -26,6 +27,26 @@ set_key_error(PyObject *arg)
 
 /* Define this out if you don't want conversion statistics on exit. */
 #undef SHOW_CONVERSION_COUNTS
+
+#define DICT_LISTLIKE_WARN(MSG, CALLEE) \
+    do { \
+        PygrateWarningContext warn_ctx; \
+        int should_warn = 0; \
+        int materialize = -1; \
+        pygrate_capture_warning_context(&warn_ctx); \
+        if (warn_ctx.consumer_opname != NULL) { \
+            if (strcmp(warn_ctx.consumer_opname, "BINARY_SUBSCR") == 0 || \
+                    strcmp(warn_ctx.consumer_opname, "STORE_SUBSCR") == 0 || \
+                    strcmp(warn_ctx.consumer_opname, "BINARY_ADD") == 0 || \
+                    strcmp(warn_ctx.consumer_opname, "INPLACE_ADD") == 0) { \
+                should_warn = 1; \
+                materialize = 1; \
+            } \
+        } \
+        if (should_warn && pygrate_warn_py3k_with_context((MSG), &warn_ctx, \
+                (CALLEE), "dict", materialize, -1, NULL, 1) < 0) \
+            return NULL; \
+    } while (0)
 
 /* See large comment block below.  This must be >= 1. */
 #define PERTURB_SHIFT 5
@@ -1301,6 +1322,9 @@ dict_keys(register PyDictObject *mp)
     PyDictEntry *ep;
     Py_ssize_t mask, n;
 
+    DICT_LISTLIKE_WARN("dict.keys() may require list materialization in 3.x",
+                       "dict.keys");
+
   again:
     n = mp->ma_used;
     v = PyList_New(n);
@@ -1334,6 +1358,9 @@ dict_values(register PyDictObject *mp)
     register Py_ssize_t i, j;
     PyDictEntry *ep;
     Py_ssize_t mask, n;
+
+    DICT_LISTLIKE_WARN("dict.values() may require list materialization in 3.x",
+                       "dict.values");
 
   again:
     n = mp->ma_used;
@@ -1369,6 +1396,9 @@ dict_items(register PyDictObject *mp)
     Py_ssize_t mask;
     PyObject *item, *key, *value;
     PyDictEntry *ep;
+
+    DICT_LISTLIKE_WARN("dict.items() may require list materialization in 3.x",
+                       "dict.items");
 
     /* Preallocate the list of tuples, to avoid allocations during
      * the loop over the items, which could trigger GC, which

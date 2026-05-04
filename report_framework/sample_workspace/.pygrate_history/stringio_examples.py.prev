@@ -1,0 +1,14 @@
+from io import StringIO
+text_buf = StringIO()
+
+import io
+text_buf2 = io.StringIO()
+
+from io import BytesIO
+bytes_buf = BytesIO("abc")
+
+import io
+bytes_buf2 = io.BytesIO("abc")
+
+import StringIO as sio
+warning_only_alias = sio.StringIO()
