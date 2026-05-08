@@ -43,10 +43,6 @@ class TestPy3KWarnings(unittest.TestCase):
     def assertNoWarning(self, _, recorder):
         self.assertEqual(len(recorder.warnings), 0)
 
-    def _write_file(self, path, contents):
-        with open(path, 'w') as f:
-            f.write(contents)
-
     def _check_import_order_warning(self, importer_source, expected_message=None,
                                     imported_name='foo',
                                     top_source="WHO = 'TOP_LEVEL_FOO'\n",
@@ -54,23 +50,22 @@ class TestPy3KWarnings(unittest.TestCase):
                                     package=True):
         with test_support.temp_dir() as tmp:
             if top_source is not None:
-                self._write_file(os.path.join(tmp, imported_name + '.py'),
-                                 top_source)
+                script_helper.make_script(tmp, imported_name, top_source)
 
             if package:
                 pkg_dir = os.path.join(tmp, 'pkg')
                 os.mkdir(pkg_dir)
-                self._write_file(os.path.join(pkg_dir, '__init__.py'), '')
+                script_helper.make_script(pkg_dir, '__init__', '')
                 if sibling_source is not None:
-                    self._write_file(os.path.join(pkg_dir, imported_name + '.py'),
-                                     sibling_source)
+                    script_helper.make_script(pkg_dir, imported_name,
+                                              sibling_source)
                 import_target = 'pkg.importer'
-                importer_path = os.path.join(pkg_dir, 'importer.py')
+                script_helper.make_script(pkg_dir, 'importer',
+                                          importer_source)
             else:
                 import_target = 'importer'
-                importer_path = os.path.join(tmp, 'importer.py')
+                script_helper.make_script(tmp, 'importer', importer_source)
 
-            self._write_file(importer_path, importer_source)
             rc, out, err = script_helper.assert_python_ok(
                 '-S', '-3', '-c', 'import %s' % import_target, PYTHONPATH=tmp)
             self.assertEqual(rc, 0)

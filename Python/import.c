@@ -2274,7 +2274,7 @@ import_module_level(char *name, PyObject *globals, PyObject *locals,
         goto error_exit;
 
     if (level < 0 && parent != Py_None && strchr(name, '.') == NULL &&
-        buflen < sizeof(package_name) && strlen(name) < sizeof(imported_name)) {
+        strlen(name) < sizeof(imported_name)) {
         strcpy(package_name, buf);
         strcpy(imported_name, name);
         warn_if_relative_sibling = 1;
@@ -2322,13 +2322,12 @@ import_module_level(char *name, PyObject *globals, PyObject *locals,
             from_import = 1;
     }
 
-    if (warn_if_relative_sibling) {
-        if (warn_implicit_relative_sibling(head, imported_name,
-                                           package_name, from_import) < 0) {
-            Py_DECREF(tail);
-            Py_DECREF(head);
-            goto error_exit;
-        }
+    if (warn_if_relative_sibling &&
+        warn_implicit_relative_sibling(head, imported_name,
+                                       package_name, from_import) < 0) {
+        Py_DECREF(tail);
+        Py_DECREF(head);
+        goto error_exit;
     }
 
     if (fromlist == NULL) {
@@ -2386,8 +2385,7 @@ warn_implicit_relative_sibling(PyObject *module, const char *imported_name,
         fix = PyString_FromFormat(
             "use 'from .%.200s import ...' if the package sibling is intended",
             imported_name);
-    }
-    else {
+    } else {
         msg = PyString_FromFormat(
             "implicit relative import of '%.200s' resolved to package sibling '%.200s'; "
             "in 3.x imports are absolute by default and this will resolve differently or fail",
@@ -2396,11 +2394,8 @@ warn_implicit_relative_sibling(PyObject *module, const char *imported_name,
             "use 'from . import %.200s' if the package sibling is intended",
             imported_name);
     }
-    if (msg == NULL || fix == NULL) {
-        Py_XDECREF(msg);
-        Py_XDECREF(fix);
-        return -1;
-    }
+    if (msg == NULL || fix == NULL)
+        goto error;
 
     result = PyErr_WarnEx_WithFix(PyExc_DeprecationWarning,
                                   PyString_AsString(msg),
@@ -2408,6 +2403,11 @@ warn_implicit_relative_sibling(PyObject *module, const char *imported_name,
     Py_DECREF(msg);
     Py_DECREF(fix);
     return result;
+
+error:
+    Py_XDECREF(msg);
+    Py_XDECREF(fix);
+    return -1;
 }
 
 PyObject *
