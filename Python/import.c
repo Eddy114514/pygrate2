@@ -2247,6 +2247,11 @@ import_module_level(char *name, PyObject *globals, PyObject *locals,
     Py_ssize_t buflen = 0;
     PyObject *parent, *head, *next, *tail;
 
+    char parentstr[MAXPATHLEN + 1];
+    char *orig_name = name;
+    int is_from_form = 0;
+    int might_warn_implicit;
+
     if (strchr(name, '/') != NULL
 #ifdef MS_WINDOWS
         || strchr(name, '\\') != NULL
@@ -2264,6 +2269,14 @@ import_module_level(char *name, PyObject *globals, PyObject *locals,
     parent = get_parent(globals, buf, &buflen, level);
     if (parent == NULL)
         goto error_exit;
+
+    might_warn_implicit = level < 0 &&
+                          parent != Py_None &&
+                          strchr(name, '.') == NULL &&
+                          buflen + strlen(name) + 1 <= MAXPATHLEN;
+    if (might_warn_implicit) {
+        memcpy(parentstr, buf, buflen + 1);
+    }
 
     Py_INCREF(parent);
     head = load_next(parent, level < 0 ? Py_None : parent, &name, buf,
@@ -2303,6 +2316,35 @@ import_module_level(char *name, PyObject *globals, PyObject *locals,
         }
         if (!b)
             fromlist = NULL;
+        is_from_form = b;
+    }
+
+    if (might_warn_implicit) {
+        char potential_resolved[MAXPATHLEN + 2];
+        sprintf(potential_resolved, "%s.%s", parentstr, orig_name);
+
+        if (strcmp(potential_resolved, buf) == 0) {
+            char msg[524];
+            char fix[260];
+            if (is_from_form) {
+                sprintf(msg,
+                    "implicit relative import from '%.200s' resolved to '%.200s'; "
+                    "in 3.x imports are absolute by default, so this may resolve differently",
+                    orig_name, buf);
+                sprintf(fix,
+                    "use 'from %.200s import ...' if the parent package is intended", buf);
+            } else {
+                sprintf(msg,
+                    "implicit relative import '%.200s' resolved to '%.200s'; "
+                    "in 3.x imports are absolute by default, so this may resolve differently",
+                    orig_name, buf);
+                sprintf(fix,
+                    "use 'import %.200s' if the parent package is intended", buf);
+            }
+            if (PyErr_WarnPy3k_WithFix(msg, fix, 1) < 0) {
+                goto error_exit;
+            }
+        }
     }
 
     if (fromlist == NULL) {

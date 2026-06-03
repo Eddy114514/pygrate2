@@ -502,7 +502,7 @@ class WarningMessageWithFix(object):
 
     def __str__(self):
         return ("{message : %r, fix : %r, category : %r, filename : %r, lineno : %s, "
-                    "line : %r}" % (self.message, self._category_name,
+                    "line : %r}" % (self.message, self.fix, self._category_name,
                                     self.filename, self.lineno, self.line))
 
 
@@ -551,6 +551,7 @@ class catch_warnings(object):
         self._filters = self._module.filters
         self._module.filters = self._filters[:]
         self._showwarning = self._module.showwarning
+        self._showwarningwithfix = self._module.showwarningwithfix
         if self._record:
             log = []
             def showwarning(*args, **kwargs):
@@ -558,6 +559,7 @@ class catch_warnings(object):
             def showwarningwithfix(*args, **kwargs):
                 log.append(WarningMessageWithFix(*args, **kwargs))
             self._module.showwarning = showwarning
+            self._module.showwarningwithfix = showwarningwithfix
             return log
         else:
             return None
@@ -567,6 +569,7 @@ class catch_warnings(object):
             raise RuntimeError("Cannot exit %r without entering first" % self)
         self._module.filters = self._filters
         self._module.showwarning = self._showwarning
+        self._module.showwarningwithfix = self._showwarningwithfix
 
 
 # filters contains a sequence of filter 5-tuples

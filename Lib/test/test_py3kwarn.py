@@ -1,11 +1,11 @@
 import unittest
 import sys
+import os
 import contextlib
 from test.test_support import check_py3k_warnings, CleanImport, run_unittest
-from test.script_helper import assert_python_ok
 import warnings
 import base64
-from test import test_support
+from test import test_support, script_helper
 
 if not sys.py3kwarning:
     raise unittest.SkipTest('%s must be run with the -3 flag' % __name__)
@@ -60,6 +60,88 @@ class TestPy3KWarnings(unittest.TestCase):
 
     def assertNoWarning(self, _, recorder):
         self.assertEqual(len(recorder.warnings), 0)
+
+    def assertWarningWithFix(self, _, warning, expected_msg, expected_fix):
+        self.assertTrue(hasattr(warning, 'fix'))
+        self.assertEqual('{}: {}'.format(warning.message, warning.fix), '{}: {}'.format(expected_msg, expected_fix))
+    
+    def assertNoWarningsFromFile(self, _, recorder, filename='test_py3kwarn.py'):
+        for warning in recorder._warnings:
+            self.assertNotEqual(warning.filename, filename)
+
+    def test_implicit_relative_import(self):
+        expected_msg = ("implicit relative import 'importee' resolved to 'testpkg.subpkg.importee'; "
+                        "in 3.x imports are absolute by default, so this may resolve differently")
+        expected_fix = "use 'import testpkg.subpkg.importee' if the parent package is intended"
+        with check_py3k_warnings(("", DeprecationWarning), ("", Py3xWarning), quiet=True) as w, test_support.temp_dir() as test_dir:
+            try:
+                sys.path.append(test_dir)
+
+                pkg_dir = os.path.join(test_dir, 'testpkg')
+                subpkg_dir = os.path.join(pkg_dir, 'subpkg')
+                script_helper.make_pkg(pkg_dir)
+                script_helper.make_pkg(subpkg_dir)
+                script_helper.make_script(subpkg_dir, 'importee', '')
+                script_helper.make_script(subpkg_dir, 'importer', 'import importee')
+
+                import testpkg.subpkg.importer
+                self.assertWarningWithFix(None, w, expected_msg, expected_fix)
+            finally:
+                sys.path.remove(test_dir)
+
+    def test_implicit_relative_import_from(self):
+        expected_msg = ("implicit relative import from 'importee' resolved to 'testpkg2.subpkg.importee'; "
+                        "in 3.x imports are absolute by default, so this may resolve differently")
+        expected_fix = "use 'from testpkg2.subpkg.importee import ...' if the parent package is intended"
+        with check_py3k_warnings(("", DeprecationWarning), ("", Py3xWarning), quiet=True) as w, test_support.temp_dir() as test_dir:
+            try:
+                sys.path.append(test_dir)
+
+                pkg_dir = os.path.join(test_dir, 'testpkg2')
+                subpkg_dir = os.path.join(pkg_dir, 'subpkg')
+                script_helper.make_pkg(pkg_dir)
+                script_helper.make_pkg(subpkg_dir)
+                script_helper.make_script(subpkg_dir, 'importee', 'foo = 0')
+                script_helper.make_script(subpkg_dir, 'importer', 'from importee import foo')
+
+                import testpkg2.subpkg.importer
+                self.assertWarningWithFix(None, w, expected_msg, expected_fix)
+            finally:
+                sys.path.remove(test_dir)
+
+    def test_absolute_import_no_warning(self):
+        with check_py3k_warnings(("", DeprecationWarning), ("", Py3xWarning), quiet=True) as w, test_support.temp_dir() as test_dir:
+            try:
+                sys.path.append(test_dir)
+
+                pkg_dir = os.path.join(test_dir, 'testpkg3')
+                subpkg_dir = os.path.join(pkg_dir, 'subpkg')
+                script_helper.make_pkg(pkg_dir)
+                script_helper.make_pkg(subpkg_dir)
+                script_helper.make_script(subpkg_dir, 'importee', 'foo = 0')
+                script_helper.make_script(subpkg_dir, 'importer', 'import testpkg3.subpkg.importee')
+
+                import testpkg3.subpkg.importer
+                self.assertNoWarningsFromFile(None, w)
+            finally:
+                sys.path.remove(test_dir)
+
+    def test_absolute_import_from_no_warning(self):
+        with check_py3k_warnings(("", DeprecationWarning), ("", Py3xWarning), quiet=True) as w, test_support.temp_dir() as test_dir:
+            try:
+                sys.path.append(test_dir)
+
+                pkg_dir = os.path.join(test_dir, 'testpkg4')
+                subpkg_dir = os.path.join(pkg_dir, 'subpkg')
+                script_helper.make_pkg(pkg_dir)
+                script_helper.make_pkg(subpkg_dir)
+                script_helper.make_script(subpkg_dir, 'importee', 'foo = 0')
+                script_helper.make_script(subpkg_dir, 'importer', 'from testpkg4.subpkg.importee import foo')
+
+                import testpkg4.subpkg.importer
+                self.assertNoWarningsFromFile(None, w)
+            finally:
+                sys.path.remove(test_dir)
 
     def test_backquote(self):
         expected = 'backquote not supported in 3.x; use repr()'
