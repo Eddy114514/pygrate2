@@ -351,6 +351,26 @@ class TestPy3KWarnings(unittest.TestCase):
         with check_py3k_warnings() as w:
             self.assertWarning(d.keys()[0], w, expected)
 
+    def test_zip_materialization(self):
+        expected = 'zip() may require list materialization in 3.x'
+        with check_py3k_warnings() as w:
+            result = zip([1], [2])[0]
+            subscript_warnings = w.warnings
+            w.reset()
+            zip([1], [2])[0] = (3, 4)
+            store_warnings = w.warnings
+        self.assertEqual(result, (1, 2))
+        self.assertEqual(len(subscript_warnings), 1)
+        self.assertEqual(str(subscript_warnings[0].message), expected)
+        self.assertEqual(len(store_warnings), 1)
+        self.assertEqual(str(store_warnings[0].message), expected)
+
+    def test_zip_materialization_no_warning(self):
+        with check_py3k_warnings(quiet=True) as w:
+            result = list(zip([1], [2]))[0]
+        self.assertEqual(result, (1, 2))
+        self.assertNoWarning(None, w)
+
     def test_sys_exc_clear(self):
         expected = 'sys.exc_clear() not supported in 3.x; use except clauses'
         with check_py3k_warnings() as w:

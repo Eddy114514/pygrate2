@@ -2530,9 +2530,15 @@ builtin_zip(PyObject *self, PyObject *args)
     Py_ssize_t i;
     PyObject *itlist;  /* tuple of iterators */
     Py_ssize_t len;        /* guess at result length */
+    int nextop;
 
     if (itemsize == 0)
         return PyList_New(0);
+
+    nextop = _Py3kWarn_CallResultSubscriptContainerOpcode();
+    if ((nextop == BINARY_SUBSCR || nextop == STORE_SUBSCR) &&
+            PyErr_WarnPy3k("zip() may require list materialization in 3.x", 1) < 0)
+        return NULL;
 
     /* args must be a tuple */
     assert(PyTuple_Check(args));

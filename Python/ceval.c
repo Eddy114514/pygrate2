@@ -19,8 +19,17 @@
 
 #include <ctype.h>
 
-int
-_Py3kWarn_NextOpcode(void)
+typedef enum {
+    PY3K_WARN_SCAN_NEXT_RELEVANT_OPCODE,
+    PY3K_WARN_SCAN_CALL_RESULT_SUBSCRIPT_CONTAINER
+} Py3kWarnOpcodeScanMode;
+
+/* The call-result mode tracks only the result's relative stack depth
+   through a bounded, straight-line whitelist. Unsupported opcodes fail
+   closed; it does not perform full stack, control-flow, or provenance
+   analysis. The other mode preserves the legacy stack-agnostic scan. */
+static int
+_Py3kWarn_ScanOpcode(Py3kWarnOpcodeScanMode mode)
 {
     PyFrameObject *frame;
     char *code;
@@ -28,6 +37,7 @@ _Py3kWarn_NextOpcode(void)
     int offset;
     int op;
     int steps;
+    int marker_depth = 0;
 
     frame = PyEval_GetFrame();
     if (frame == NULL || frame->f_code == NULL)
@@ -53,17 +63,43 @@ _Py3kWarn_NextOpcode(void)
        stored, returned, or discarded. */
     for (steps = 0; steps < 8 && offset >= 0 && offset < n; steps++) {
         op = (unsigned char)code[offset];
-        if (op == BINARY_ADD || op == INPLACE_ADD || op == GET_ITER ||
-                op == BINARY_SUBSCR || op == STORE_SUBSCR)
-            return op;
-        if (op == RETURN_VALUE || op == STORE_NAME || op == STORE_FAST ||
-                op == STORE_GLOBAL || op == STORE_ATTR || op == POP_TOP)
-            return -1;
+        if (mode == PY3K_WARN_SCAN_CALL_RESULT_SUBSCRIPT_CONTAINER) {
+            if (op == BINARY_SUBSCR || op == STORE_SUBSCR) {
+                if (marker_depth == 1)
+                    return op;
+                return -1;
+            }
+            if (op == LOAD_CONST || op == LOAD_FAST || op == LOAD_NAME ||
+                    op == LOAD_GLOBAL || op == LOAD_DEREF)
+                marker_depth++;
+            else if (op != NOP)
+                return -1;
+        } else {
+            if (op == BINARY_ADD || op == INPLACE_ADD || op == GET_ITER ||
+                    op == BINARY_SUBSCR || op == STORE_SUBSCR)
+                return op;
+            if (op == RETURN_VALUE || op == STORE_NAME || op == STORE_FAST ||
+                    op == STORE_GLOBAL || op == STORE_ATTR || op == POP_TOP)
+                return -1;
+        }
         offset += 1;
         if (HAS_ARG(op))
             offset += 2;
     }
     return -1;
+}
+
+int
+_Py3kWarn_NextOpcode(void)
+{
+    return _Py3kWarn_ScanOpcode(PY3K_WARN_SCAN_NEXT_RELEVANT_OPCODE);
+}
+
+int
+_Py3kWarn_CallResultSubscriptContainerOpcode(void)
+{
+    return _Py3kWarn_ScanOpcode(
+            PY3K_WARN_SCAN_CALL_RESULT_SUBSCRIPT_CONTAINER);
 }
 
 static PyObject *exec_local_writeback_map = NULL;

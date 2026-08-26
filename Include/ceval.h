@@ -31,6 +31,7 @@ PyAPI_FUNC(PyObject *) PyEval_GetLocals(void);
 PyAPI_FUNC(struct _frame *) PyEval_GetFrame(void);
 PyAPI_FUNC(int) PyEval_GetRestricted(void);
 PyAPI_FUNC(int) _Py3kWarn_NextOpcode(void);
+PyAPI_FUNC(int) _Py3kWarn_CallResultSubscriptContainerOpcode(void);
 
 /* Look at the current frame's (if any) code's co_flags, and turn on
    the corresponding compiler flags in cf->cf_flags.  Return 1 if any
