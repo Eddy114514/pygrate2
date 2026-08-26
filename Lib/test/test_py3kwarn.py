@@ -1,9 +1,11 @@
 import unittest
 import sys
+import os
+import contextlib
 from test.test_support import check_py3k_warnings, CleanImport, run_unittest
 import warnings
 import base64
-from test import test_support
+from test import test_support, script_helper
 
 if not sys.py3kwarning:
     raise unittest.SkipTest('%s must be run with the -3 flag' % __name__)
@@ -35,11 +37,111 @@ def reset_module_registry(module):
 
 class TestPy3KWarnings(unittest.TestCase):
 
+    @contextlib.contextmanager
+    def check_py3k_warnings_with_fix(self):
+        frame = sys._getframe(2)
+        registry = frame.f_globals.get('__warningregistry__')
+        if registry:
+            registry.clear()
+        with warnings.catch_warnings(record=True) as w:
+            # PyErr_WarnExplicit_WithFix uses this runtime hook directly.
+            showwarningwithfix = warnings.showwarningwithfix
+            def record_warning_with_fix(*args, **kwargs):
+                w.append(warnings.WarningMessageWithFix(*args, **kwargs))
+            warnings.showwarningwithfix = record_warning_with_fix
+            warnings.simplefilter("always")
+            try:
+                yield test_support.WarningsRecorder(w)
+            finally:
+                warnings.showwarningwithfix = showwarningwithfix
+
     def assertWarning(self, _, warning, expected_message):
         self.assertEqual(str(warning.message), expected_message)
 
     def assertNoWarning(self, _, recorder):
         self.assertEqual(len(recorder.warnings), 0)
+
+    def assertWarningWithFix(self, _, warning, expected_msg, expected_fix):
+        self.assertTrue(hasattr(warning, 'fix'))
+        self.assertEqual('{}: {}'.format(warning.message, warning.fix), '{}: {}'.format(expected_msg, expected_fix))
+    
+    def assertNoWarningsFromFile(self, _, recorder, filename='test_py3kwarn.py'):
+        for warning in recorder._warnings:
+            self.assertNotEqual(warning.filename, filename)
+
+    def test_implicit_relative_import(self):
+        expected_msg = ("implicit relative import 'importee' resolved to 'testpkg.subpkg.importee'; "
+                        "in 3.x imports are absolute by default, so this may resolve differently")
+        expected_fix = "use 'import testpkg.subpkg.importee' if the parent package is intended"
+        with check_py3k_warnings(("", DeprecationWarning), ("", Py3xWarning), quiet=True) as w, test_support.temp_dir() as test_dir:
+            try:
+                sys.path.append(test_dir)
+
+                pkg_dir = os.path.join(test_dir, 'testpkg')
+                subpkg_dir = os.path.join(pkg_dir, 'subpkg')
+                script_helper.make_pkg(pkg_dir)
+                script_helper.make_pkg(subpkg_dir)
+                script_helper.make_script(subpkg_dir, 'importee', '')
+                script_helper.make_script(subpkg_dir, 'importer', 'import importee')
+
+                import testpkg.subpkg.importer
+                self.assertWarningWithFix(None, w, expected_msg, expected_fix)
+            finally:
+                sys.path.remove(test_dir)
+
+    def test_implicit_relative_import_from(self):
+        expected_msg = ("implicit relative import from 'importee' resolved to 'testpkg2.subpkg.importee'; "
+                        "in 3.x imports are absolute by default, so this may resolve differently")
+        expected_fix = "use 'from testpkg2.subpkg.importee import ...' if the parent package is intended"
+        with check_py3k_warnings(("", DeprecationWarning), ("", Py3xWarning), quiet=True) as w, test_support.temp_dir() as test_dir:
+            try:
+                sys.path.append(test_dir)
+
+                pkg_dir = os.path.join(test_dir, 'testpkg2')
+                subpkg_dir = os.path.join(pkg_dir, 'subpkg')
+                script_helper.make_pkg(pkg_dir)
+                script_helper.make_pkg(subpkg_dir)
+                script_helper.make_script(subpkg_dir, 'importee', 'foo = 0')
+                script_helper.make_script(subpkg_dir, 'importer', 'from importee import foo')
+
+                import testpkg2.subpkg.importer
+                self.assertWarningWithFix(None, w, expected_msg, expected_fix)
+            finally:
+                sys.path.remove(test_dir)
+
+    def test_absolute_import_no_warning(self):
+        with check_py3k_warnings(("", DeprecationWarning), ("", Py3xWarning), quiet=True) as w, test_support.temp_dir() as test_dir:
+            try:
+                sys.path.append(test_dir)
+
+                pkg_dir = os.path.join(test_dir, 'testpkg3')
+                subpkg_dir = os.path.join(pkg_dir, 'subpkg')
+                script_helper.make_pkg(pkg_dir)
+                script_helper.make_pkg(subpkg_dir)
+                script_helper.make_script(subpkg_dir, 'importee', 'foo = 0')
+                script_helper.make_script(subpkg_dir, 'importer', 'import testpkg3.subpkg.importee')
+
+                import testpkg3.subpkg.importer
+                self.assertNoWarningsFromFile(None, w)
+            finally:
+                sys.path.remove(test_dir)
+
+    def test_absolute_import_from_no_warning(self):
+        with check_py3k_warnings(("", DeprecationWarning), ("", Py3xWarning), quiet=True) as w, test_support.temp_dir() as test_dir:
+            try:
+                sys.path.append(test_dir)
+
+                pkg_dir = os.path.join(test_dir, 'testpkg4')
+                subpkg_dir = os.path.join(pkg_dir, 'subpkg')
+                script_helper.make_pkg(pkg_dir)
+                script_helper.make_pkg(subpkg_dir)
+                script_helper.make_script(subpkg_dir, 'importee', 'foo = 0')
+                script_helper.make_script(subpkg_dir, 'importer', 'from testpkg4.subpkg.importee import foo')
+
+                import testpkg4.subpkg.importer
+                self.assertNoWarningsFromFile(None, w)
+            finally:
+                sys.path.remove(test_dir)
 
     def test_backquote(self):
         expected = 'backquote not supported in 3.x; use repr()'
@@ -424,12 +526,138 @@ class TestPy3KWarnings(unittest.TestCase):
         expected = "base64.b32encode returns str in Python 2 (bytes in 3.x)"
         base64.b32encode(b'test')
         check_py3k_warnings(expected, UserWarning)
-    
+        
     def test_b16encode_warns(self):
         expected = "base64.b16encode returns str in Python 2 (bytes in 3.x)"
         base64.b16encode(b'test')
         check_py3k_warnings(expected, UserWarning)
         
+    def assertMROWarning(self, recorder, expected_message):
+        self.assertEqual(len(recorder.warnings), 1)
+        msg = str(recorder.warnings[0].message)
+        self.assertEqual(msg, expected_message)
+        recorder.reset()
+        
+    def test_classic_mro_resolution_change_warning(self):
+        with self.check_py3k_warnings_with_fix() as w:
+            class A:
+                def do_this(self):
+                    return "A"
+
+            class B(A):
+                pass
+
+            class C(A):
+                def do_this(self):
+                    return "C"
+
+            class D(B, C):
+                pass
+
+            self.assertEqual(D().do_this(), "A")
+            self.assertMROWarning(
+                w,
+                "classic multiple inheritance for class 'D' will resolve "
+                "attribute 'do_this' from 'A' in 2.x but from 'C' in 3.x "
+                "due to C3 MRO")
+
+    def test_classic_mro_single_inheritance_no_warning(self):
+        with self.check_py3k_warnings_with_fix() as w:
+            class A:
+                def only_here(self):
+                    return "A"
+
+            class B(A):
+                pass
+
+            self.assertEqual(B().only_here(), "A")
+            self.assertEqual(len(w.warnings), 0)
+
+    def test_classic_mro_no_conflicting_name_no_warning(self):
+        with self.check_py3k_warnings_with_fix() as w:
+            class A:
+                pass
+
+            class B(A):
+                def left(self):
+                    return "left"
+
+            class C(A):
+                def right(self):
+                    return "right"
+
+            class D(B, C):
+                pass
+
+            self.assertEqual(D().left(), "left")
+            self.assertEqual(D().right(), "right")
+            self.assertEqual(len(w.warnings), 0)
+
+    def test_classic_mro_provider_unchanged_no_warning(self):
+        with self.check_py3k_warnings_with_fix() as w:
+            class A:
+                def only_here(self):
+                    return "A"
+
+            class B(A):
+                pass
+
+            class C(A):
+                pass
+
+            class D(B, C):
+                pass
+
+            self.assertEqual(D().only_here(), "A")
+            self.assertEqual(len(w.warnings), 0)
+
+    def test_classic_mro_c3_conflict_warning(self):
+        with self.check_py3k_warnings_with_fix() as w:
+            class A:
+                pass
+
+            class B:
+                pass
+
+            class X(A, B):
+                pass
+
+            class Y(B, A):
+                pass
+
+            class Z(X, Y):
+                pass
+
+            self.assertMROWarning(
+                w,
+                "classic multiple inheritance hierarchy for class 'Z' has no "
+                "consistent C3 MRO and will fail in 3.x")
+
+    def test_classic_mro_bases_update_warning(self):
+        with self.check_py3k_warnings_with_fix() as w:
+            class A:
+                def do_this(self):
+                    return "A"
+
+            class B(A):
+                pass
+
+            class C(A):
+                def do_this(self):
+                    return "C"
+
+            class D(B):
+                pass
+
+            self.assertEqual(len(w.warnings), 0)
+            D.__bases__ = (B, C)
+            self.assertEqual(D().do_this(), "A")
+            self.assertMROWarning(
+                w,
+                "classic multiple inheritance for class 'D' will resolve "
+                "attribute 'do_this' from 'A' in 2.x but from 'C' in 3.x "
+                "due to C3 MRO")
+
 
 class TestStdlibRemovals(unittest.TestCase):
 
